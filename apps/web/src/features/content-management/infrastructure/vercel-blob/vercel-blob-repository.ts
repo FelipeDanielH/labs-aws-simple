@@ -272,9 +272,12 @@ export class VercelBlobContentRepository
       blob.pathname.endsWith("/manifest.json"),
     );
     const results = await Promise.all(
-      manifestBlobs.map((blob) =>
-        this.readJson<DocumentManifest>(blob.pathname, blob),
-      ),
+      manifestBlobs.map((blob) => {
+        // list() discovers stable manifest pathnames, but its metadata can lag
+        // behind an overwrite. readJson() performs head() so the content and
+        // ETag always come from the current authoritative version.
+        return this.readJson<DocumentManifest>(blob.pathname);
+      }),
     );
     return results
       .filter((item): item is NonNullable<typeof item> => item !== null)

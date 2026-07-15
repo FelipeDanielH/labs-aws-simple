@@ -148,16 +148,24 @@ export function DocumentAdminWorkspace() {
           {error}
         </p>
       ) : null}
-      <DocxImportPanel taxonomy={taxonomy} onCreated={refresh} />
+      <DocxImportPanel
+        taxonomy={taxonomy}
+        onCreated={(document) => {
+          setDocuments((current) => upsertDocument(current, document.manifest));
+          router.refresh();
+        }}
+      />
       {selected ? (
         <DocumentEditor
           key={selected.etag}
           document={selected}
           taxonomy={taxonomy}
           onClose={() => setSelected(null)}
-          onSaved={async () => {
+          onSaved={(document) => {
             setSelected(null);
-            await refresh();
+            setDocuments((current) =>
+              upsertDocument(current, document.manifest),
+            );
             router.refresh();
           }}
         />
@@ -184,7 +192,7 @@ function DocxImportPanel({
   onCreated,
 }: {
   taxonomy: Taxonomy;
-  onCreated: () => Promise<void>;
+  onCreated: (document: VersionedDocument) => void;
 }) {
   const converter = useMemo(() => new MammothDocxConverter(), []);
   const [file, setFile] = useState<File | null>(null);
@@ -260,23 +268,26 @@ function DocxImportPanel({
           };
         }),
       );
-      await adminRequest("/api/admin/documents", {
-        method: "POST",
-        body: JSON.stringify({
-          intentToken: intent.intentToken,
-          originalFileName: file.name,
-          markdown: converted.markdown,
-          assets: uploaded,
-          metadata: { ...metadata, extra },
-          categoryId,
-          subcategoryId,
-        }),
-      });
+      const document = await adminRequest<VersionedDocument>(
+        "/api/admin/documents",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            intentToken: intent.intentToken,
+            originalFileName: file.name,
+            markdown: converted.markdown,
+            assets: uploaded,
+            metadata: { ...metadata, extra },
+            categoryId,
+            subcategoryId,
+          }),
+        },
+      );
       setFile(null);
       setConverted(null);
       setMetadata(emptyMetadata);
       setExtraJson("{}");
-      await onCreated();
+      onCreated(document);
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
@@ -358,7 +369,7 @@ function DocumentEditor({
   document: VersionedDocument;
   taxonomy: Taxonomy;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (document: VersionedDocument) => void;
 }) {
   const [markdown, setMarkdown] = useState(document.markdown);
   const [metadata, setMetadata] = useState(document.manifest.metadata);
@@ -390,17 +401,20 @@ function DocumentEditor({
     setBusy(true);
     setError("");
     try {
-      await adminRequest(`/api/admin/documents/${document.manifest.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          markdown,
-          metadata: { ...metadata, extra: JSON.parse(extraJson) },
-          categoryId,
-          subcategoryId,
-          expectedEtag: document.etag,
-        }),
-      });
-      await onSaved();
+      const updated = await adminRequest<VersionedDocument>(
+        `/api/admin/documents/${document.manifest.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            markdown,
+            metadata: { ...metadata, extra: JSON.parse(extraJson) },
+            categoryId,
+            subcategoryId,
+            expectedEtag: document.etag,
+          }),
+        },
+      );
+      onSaved(updated);
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
@@ -892,4 +906,13 @@ function messageOf(error: unknown) {
   return error instanceof Error
     ? error.message
     : "La operación no pudo completarse.";
+}
+
+function upsertDocument(
+  documents: DocumentManifest[],
+  updated: DocumentManifest,
+): DocumentManifest[] {
+  return [updated, ...documents.filter((item) => item.id !== updated.id)].sort(
+    (left, right) => right.updatedAt.localeCompare(left.updatedAt),
+  );
 }
