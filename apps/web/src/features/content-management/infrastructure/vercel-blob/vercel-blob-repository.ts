@@ -1,6 +1,13 @@
 import "server-only";
 
-import { BlobPreconditionFailedError, del, get, list, put } from "@vercel/blob";
+import {
+  BlobNotFoundError,
+  BlobPreconditionFailedError,
+  del,
+  head,
+  list,
+  put,
+} from "@vercel/blob";
 
 import type { DocumentRepository } from "../../application/ports/document-repository";
 import type { TaxonomyRepository } from "../../application/ports/taxonomy-repository";
@@ -17,9 +24,13 @@ import type {
   VersionedDocument,
   VersionedTaxonomy,
 } from "../../domain/models";
-import { normalizeBlobEtag } from "./blob-etag";
+import { normalizeBlobEtag, versionedBlobUrl } from "./blob-etag";
 
-const PUBLIC_OPTIONS = { access: "public" as const, useCache: false };
+interface LocatedBlob {
+  pathname: string;
+  url: string;
+  etag: string;
+}
 
 export class VercelBlobContentRepository
   implements DocumentRepository, TaxonomyRepository
@@ -262,7 +273,7 @@ export class VercelBlobContentRepository
     );
     const results = await Promise.all(
       manifestBlobs.map((blob) =>
-        this.readJson<DocumentManifest>(blob.pathname),
+        this.readJson<DocumentManifest>(blob.pathname, blob),
       ),
     );
     return results
@@ -281,20 +292,41 @@ export class VercelBlobContentRepository
     return blobs;
   }
 
-  private async readText(pathname: string) {
-    const result = await get(pathname, PUBLIC_OPTIONS);
-    if (!result || result.statusCode !== 200) return null;
+  private async readText(pathname: string, locatedBlob?: LocatedBlob) {
+    const blob = locatedBlob ?? (await this.locateBlob(pathname));
+    if (!blob) return null;
+
+    const response = await fetch(versionedBlobUrl(blob.url, blob.etag), {
+      cache: "no-store",
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new ContentManagementError(
+        "STORAGE_FAILURE",
+        `Vercel Blob no pudo leer ${pathname}.`,
+      );
+    }
     return {
-      value: await new Response(result.stream).text(),
-      etag: normalizeBlobEtag(result.blob.etag),
+      value: await response.text(),
+      etag: normalizeBlobEtag(blob.etag),
     };
   }
 
-  private async readJson<T>(pathname: string) {
-    const stored = await this.readText(pathname);
+  private async readJson<T>(pathname: string, locatedBlob?: LocatedBlob) {
+    const stored = await this.readText(pathname, locatedBlob);
     return stored
       ? { value: JSON.parse(stored.value) as T, etag: stored.etag }
       : null;
+  }
+
+  private async locateBlob(pathname: string): Promise<LocatedBlob | null> {
+    try {
+      const blob = await head(pathname);
+      return { pathname: blob.pathname, url: blob.url, etag: blob.etag };
+    } catch (error) {
+      if (error instanceof BlobNotFoundError) return null;
+      throw error;
+    }
   }
 
   private async writeJson(

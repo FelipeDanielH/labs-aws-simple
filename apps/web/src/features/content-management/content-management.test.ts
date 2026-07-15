@@ -9,7 +9,10 @@ import {
   metadataSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
-import { normalizeBlobEtag } from "./infrastructure/vercel-blob/blob-etag";
+import {
+  normalizeBlobEtag,
+  versionedBlobUrl,
+} from "./infrastructure/vercel-blob/blob-etag";
 import { assertTaxonomySelection } from "./server/taxonomy-selection";
 
 describe("content management contracts", () => {
@@ -64,5 +67,16 @@ describe("content management contracts", () => {
     expect(normalizeBlobEtag('"version-1"')).toBe("version-1");
     expect(normalizeBlobEtag('W/"version-1"')).toBe("version-1");
     expect(normalizeBlobEtag(" version-1 ")).toBe("version-1");
+  });
+
+  it("versiona lecturas Blob mutables con el ETag actual", () => {
+    expect(
+      versionedBlobUrl(
+        "https://store.public.blob.vercel-storage.com/manifest.json",
+        'W/"version-2"',
+      ),
+    ).toBe(
+      "https://store.public.blob.vercel-storage.com/manifest.json?v=version-2",
+    );
   });
 });
