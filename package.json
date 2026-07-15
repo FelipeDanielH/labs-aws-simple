@@ -15,9 +15,11 @@
     "check": "turbo run lint typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "ui:add": "shadcn add --cwd packages/ui"
+    "ui:add": "shadcn add --cwd packages/ui",
+    "admin:hash": "node scripts/generate-admin-hash.mjs"
   },
   "devDependencies": {
+    "bcryptjs": "^3.0.3",
     "prettier": "3.9.5",
     "shadcn": "4.13.0",
     "turbo": "2.10.5",

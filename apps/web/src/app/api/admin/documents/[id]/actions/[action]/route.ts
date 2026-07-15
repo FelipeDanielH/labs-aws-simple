@@ -1,0 +1,46 @@
+import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+import { ContentManagementError } from "@/features/content-management/domain/errors";
+import type { DocumentStatus } from "@/features/content-management/domain/models";
+import {
+  assertSameOrigin,
+  requireAdminSession,
+} from "@/features/content-management/server/admin-session";
+import { getContentRepository } from "@/features/content-management/server/container";
+import { apiError } from "@/features/content-management/server/http";
+
+type Context = { params: Promise<{ id: string; action: string }> };
+
+export async function POST(request: Request, context: Context) {
+  try {
+    assertSameOrigin(request);
+    await requireAdminSession();
+    const { id, action } = await context.params;
+    const repository = getContentRepository();
+    if (action === "purge") {
+      await repository.purge(id);
+      revalidatePath("/laboratorios");
+      return NextResponse.json({ ok: true });
+    }
+    const { expectedEtag } = z
+      .object({ expectedEtag: z.string().min(1) })
+      .parse(await request.json());
+    const target: Record<string, DocumentStatus> = {
+      publish: "published",
+      unpublish: "draft",
+      restore: "draft",
+    };
+    const status = target[action];
+    if (!status) {
+      throw new ContentManagementError("INVALID_INPUT", "Acción no válida.");
+    }
+    const document = await repository.transition(id, status, expectedEtag);
+    revalidatePath("/laboratorios");
+    revalidatePath(`/laboratorios/${document.manifest.slug}`);
+    return NextResponse.json(document);
+  } catch (error) {
+    return apiError(error);
+  }
+}

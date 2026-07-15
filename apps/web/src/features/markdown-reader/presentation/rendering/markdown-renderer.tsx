@@ -10,11 +10,13 @@ import { rehypeNeutralizeActiveHtml } from "./rehype-neutralize-active-html";
 export type MarkdownRendererProps = {
   source: string;
   components?: Components;
+  baseUrl?: string;
 };
 
 export function MarkdownRenderer({
   source,
   components,
+  baseUrl,
 }: MarkdownRendererProps) {
   return (
     <div className="markdown-document overflow-hidden">
@@ -26,10 +28,22 @@ export function MarkdownRenderer({
           [rehypeSanitize, markdownSanitizeSchema],
         ]}
         components={{ ...markdownComponents, ...components }}
-        urlTransform={defaultUrlTransform}
+        urlTransform={(url) => transformMarkdownUrl(url, baseUrl)}
       >
         {source}
       </Markdown>
     </div>
   );
+}
+
+export function transformMarkdownUrl(url: string, baseUrl?: string): string {
+  const safeUrl = defaultUrlTransform(url);
+  if (!baseUrl || (!safeUrl.startsWith("./") && !safeUrl.startsWith("../"))) {
+    return safeUrl;
+  }
+  try {
+    return new URL(safeUrl, baseUrl).href;
+  } catch {
+    return "";
+  }
 }

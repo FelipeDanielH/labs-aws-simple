@@ -1,1 +1,19 @@
 @import "@workspace/ui/globals.css";
+
+@layer components {
+  .input {
+    @apply w-full rounded-lg border bg-background px-3 py-2 text-foreground;
+  }
+
+  .button-primary {
+    @apply rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50;
+  }
+
+  .button-secondary {
+    @apply rounded-lg border bg-background px-3 py-2 text-sm font-medium disabled:opacity-50;
+  }
+
+  .button-danger {
+    @apply rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive;
+  }
+}

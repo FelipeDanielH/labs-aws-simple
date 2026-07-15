@@ -1,6 +1,6 @@
 "use client";
 
-import { MarkdownReaderWorkspace } from "@/features/markdown-reader/presentation/components/markdown-reader-workspace";
+import { DocumentAdminWorkspace } from "./document-admin-workspace";
 import { messages } from "@/shared/config/translations";
 import { usePreferencesStore } from "@/shared/store/preferences-store";
 
@@ -17,7 +17,7 @@ export function AdminContent() {
         </h1>
         <p className="text-lg text-muted-foreground">{copy.description}</p>
       </div>
-      <MarkdownReaderWorkspace />
+      <DocumentAdminWorkspace />
     </main>
   );
 }

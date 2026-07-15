@@ -15,11 +15,35 @@ pnpm build
 pnpm check
 ```
 
+## Gestión de documentos con Vercel Blob
+
+La administración convierte archivos `.docx` en el navegador y almacena únicamente Markdown, imágenes y manifiestos en Vercel Blob. El DOCX original no se sube.
+
+Configuración necesaria:
+
+1. Crea un Blob Store público en Vercel y conéctalo al proyecto. En los despliegues, Vercel inyectará `BLOB_STORE_ID` y proporcionará `VERCEL_OIDC_TOKEN` como variable de sistema. `BLOB_READ_WRITE_TOKEN` queda como alternativa para desarrollo local sin OIDC.
+2. Genera el hash de una contraseña de al menos 12 caracteres:
+
+```powershell
+$env:ADMIN_PASSWORD='una-contraseña-larga'; pnpm admin:hash
+```
+
+3. Guarda el resultado como `ADMIN_PASSWORD_HASH` en Vercel.
+4. Genera el secreto de sesión y guárdalo como `ADMIN_SESSION_SECRET`:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+No uses el prefijo `NEXT_PUBLIC_` para ninguno de estos secretos. Configura rate limiting para `/api/admin/auth/login` cuando el plan de Vercel lo permita.
+
+El flujo administrativo está en `/admin`: importar DOCX, revisar advertencias y preview, guardar borrador, editar Markdown/metadata, publicar, despublicar, enviar a papelera, restaurar y purgar. El catálogo público se sirve en `/laboratorios`.
+
 ## Rutas
 
 - `/`: inicio público.
 - `/laboratorios`: catálogo público de laboratorios.
-- `/admin`: herramientas internas de carga y visualización Markdown; no aparece en navegación y usa metadata `noindex`, pero todavía no requiere autenticación.
+- `/admin`: administración protegida por contraseña; no aparece en navegación y usa metadata `noindex`.
 
 ## Límites arquitectónicos
 

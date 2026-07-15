@@ -3,8 +3,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MarkdownRenderer } from "./markdown-renderer";
+import { transformMarkdownUrl } from "./markdown-renderer";
 
 describe("MarkdownRenderer", () => {
+  it("resuelve imágenes relativas contra la carpeta Blob del Markdown", () => {
+    expect(
+      transformMarkdownUrl(
+        "./images/diagram.png",
+        "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/lab/document-a.md",
+      ),
+    ).toBe(
+      "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/lab/images/diagram.png",
+    );
+  });
   it("renderiza CommonMark, GFM y HTML semántico", () => {
     const source = `# Documento
 
