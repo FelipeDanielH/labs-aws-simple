@@ -2,7 +2,7 @@
 
 import { FlaskConical } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type {
   CatalogEntry,
@@ -20,9 +20,19 @@ export function LaboratoriesContent({
 }) {
   const locale = usePreferencesStore((state) => state.locale);
   const copy = messages[locale].laboratoriesPage;
-  const [categoryId, setCategoryId] = useState("");
-  const [subcategoryId, setSubcategoryId] = useState("");
-  const category = taxonomy.categories.find((item) => item.id === categoryId);
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const categoryParam = searchParams.get("categoria");
+  const subcategoryParam = searchParams.get("subcategoria");
+  const category = taxonomy.categories.find(
+    (item) => item.id === categoryParam || item.slug === categoryParam,
+  );
+  const subcategory = category?.subcategories.find(
+    (item) => item.id === subcategoryParam || item.slug === subcategoryParam,
+  );
+  const categoryId = category?.id ?? "";
+  const subcategoryId = subcategory?.id ?? "";
   const visible = documents.filter(
     (document) =>
       (!categoryId || document.categoryId === categoryId) &&
@@ -47,8 +57,10 @@ export function LaboratoriesContent({
             <select
               value={categoryId}
               onChange={(event) => {
-                setCategoryId(event.target.value);
-                setSubcategoryId("");
+                const selected = taxonomy.categories.find(
+                  (item) => item.id === event.target.value,
+                );
+                replaceFilters(selected?.slug);
               }}
               className="rounded-lg border bg-background px-3 py-2"
             >
@@ -62,7 +74,12 @@ export function LaboratoriesContent({
             <select
               value={subcategoryId}
               disabled={!category}
-              onChange={(event) => setSubcategoryId(event.target.value)}
+              onChange={(event) => {
+                const selected = category?.subcategories.find(
+                  (item) => item.id === event.target.value,
+                );
+                replaceFilters(category?.slug, selected?.slug);
+              }}
               className="rounded-lg border bg-background px-3 py-2"
             >
               <option value="">Todas las subcategorías</option>
@@ -121,6 +138,19 @@ export function LaboratoriesContent({
       </section>
     </main>
   );
+
+  function replaceFilters(categorySlug?: string, subcategorySlug?: string) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (categorySlug) params.set("categoria", categorySlug);
+    else params.delete("categoria");
+
+    if (subcategorySlug) params.set("subcategoria", subcategorySlug);
+    else params.delete("subcategoria");
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }
 }
 
 function categoryName(taxonomy: Taxonomy, id: string | null) {
