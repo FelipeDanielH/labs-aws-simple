@@ -84,6 +84,12 @@ export type Taxonomy = {
 
 export type VersionedTaxonomy = { taxonomy: Taxonomy; etag: string | null };
 
+export type DocumentCleanupResult = {
+  deletedFiles: number;
+  deletedBytes: number;
+  retainedFiles: number;
+};
+
 export type UploadedAssetInput = Omit<DocumentAsset, "id">;
 
 export type CreateDocumentInput = {

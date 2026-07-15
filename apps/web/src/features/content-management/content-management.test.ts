@@ -5,6 +5,7 @@ import {
   contentPaths,
   slugify,
 } from "./application/document-paths";
+import { cleanupRemainingMinutes } from "./application/document-retention";
 import {
   metadataSchema,
   taxonomySchema,
@@ -78,5 +79,15 @@ describe("content management contracts", () => {
     ).toBe(
       "https://store.public.blob.vercel-storage.com/manifest.json?v=version-2",
     );
+  });
+
+  it("calcula los minutos restantes para limpiar desde updatedAt", () => {
+    const updatedAt = "2026-07-15T12:00:00.000Z";
+    expect(
+      cleanupRemainingMinutes(updatedAt, Date.parse("2026-07-15T12:03:01Z")),
+    ).toBe(7);
+    expect(
+      cleanupRemainingMinutes(updatedAt, Date.parse("2026-07-15T12:10:00Z")),
+    ).toBe(0);
   });
 });

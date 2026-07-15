@@ -11,11 +11,13 @@ import {
 
 import type { DocumentRepository } from "../../application/ports/document-repository";
 import type { TaxonomyRepository } from "../../application/ports/taxonomy-repository";
+import { cleanupRemainingMinutes } from "../../application/document-retention";
 import { contentPaths, createShortId } from "../../application/document-paths";
 import { ContentManagementError } from "../../domain/errors";
 import type {
   CatalogEntry,
   CreateDocumentInput,
+  DocumentCleanupResult,
   DocumentManifest,
   DocumentStatus,
   PublicCatalog,
@@ -188,6 +190,72 @@ export class VercelBlobContentRepository
     const blobs = await this.listAll(current.manifest.folder + "/");
     if (blobs.length) await del(blobs.map((blob) => blob.url));
     await this.rebuildPublicCatalog();
+  }
+
+  async cleanupVersions(
+    id: string,
+    expectedEtag: string,
+  ): Promise<DocumentCleanupResult> {
+    const current = await this.requireManifest(id);
+    if (current.etag !== expectedEtag) this.throwConflict();
+    if (current.manifest.status !== "published") {
+      throw new ContentManagementError(
+        "INVALID_INPUT",
+        "Sólo se pueden limpiar versiones de documentos publicados.",
+      );
+    }
+
+    const remainingMinutes = cleanupRemainingMinutes(
+      current.manifest.updatedAt,
+    );
+    if (remainingMinutes > 0) {
+      throw new ContentManagementError(
+        "INVALID_INPUT",
+        `Debes esperar ${remainingMinutes} minuto${remainingMinutes === 1 ? "" : "s"} antes de limpiar versiones.`,
+      );
+    }
+
+    const blobs = await this.listAll(`${current.manifest.folder}/`);
+    const markdownBlobs = blobs
+      .filter((blob) =>
+        new RegExp(
+          `^${escapeRegExp(current.manifest.folder)}/document-[^/]+\\.md$`,
+        ).test(blob.pathname),
+      )
+      .sort(
+        (left, right) => right.uploadedAt.getTime() - left.uploadedAt.getTime(),
+      );
+    const previous = markdownBlobs.find(
+      (blob) => blob.pathname !== current.manifest.markdownPathname,
+    );
+    const retainedPathnames = new Set(
+      [current.manifest.markdownPathname, previous?.pathname].filter(
+        (pathname): pathname is string => Boolean(pathname),
+      ),
+    );
+    const lastUpdatedAt = new Date(current.manifest.updatedAt).getTime();
+    const candidates = markdownBlobs.filter(
+      (blob) =>
+        !retainedPathnames.has(blob.pathname) &&
+        blob.uploadedAt.getTime() <= lastUpdatedAt,
+    );
+
+    const latestManifest = await this.locateBlob(
+      contentPaths.manifest(current.manifest.folder),
+    );
+    if (
+      !latestManifest ||
+      normalizeBlobEtag(latestManifest.etag) !== expectedEtag
+    ) {
+      this.throwConflict();
+    }
+
+    if (candidates.length) await del(candidates.map((blob) => blob.url));
+    return {
+      deletedFiles: candidates.length,
+      deletedBytes: candidates.reduce((total, blob) => total + blob.size, 0),
+      retainedFiles: markdownBlobs.length - candidates.length,
+    };
   }
 
   async getPublicCatalog(): Promise<PublicCatalog> {
@@ -433,4 +501,8 @@ function assertTransition(from: DocumentStatus, to: DocumentStatus) {
       `No se puede cambiar el estado de ${from} a ${to}.`,
     );
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

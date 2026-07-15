@@ -27,6 +27,11 @@ export async function POST(request: Request, context: Context) {
     const { expectedEtag } = z
       .object({ expectedEtag: z.string().min(1) })
       .parse(await request.json());
+    if (action === "cleanup") {
+      return NextResponse.json(
+        await repository.cleanupVersions(id, expectedEtag),
+      );
+    }
     const target: Record<string, DocumentStatus> = {
       publish: "published",
       unpublish: "draft",

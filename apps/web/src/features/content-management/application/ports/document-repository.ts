@@ -1,5 +1,6 @@
 import type {
   CreateDocumentInput,
+  DocumentCleanupResult,
   DocumentStatus,
   PublicCatalog,
   UpdateDocumentInput,
@@ -19,6 +20,10 @@ export interface DocumentRepository {
     expectedEtag: string,
   ): Promise<VersionedManifest>;
   purge(id: string): Promise<void>;
+  cleanupVersions(
+    id: string,
+    expectedEtag: string,
+  ): Promise<DocumentCleanupResult>;
   getPublicCatalog(): Promise<PublicCatalog>;
   rebuildPublicCatalog(): Promise<PublicCatalog>;
 }

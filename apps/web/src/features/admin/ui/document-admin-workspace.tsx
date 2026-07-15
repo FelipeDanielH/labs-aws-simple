@@ -8,9 +8,11 @@ import {
   createShortId,
   slugify,
 } from "@/features/content-management/application/document-paths";
+import { cleanupRemainingMinutes } from "@/features/content-management/application/document-retention";
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
 import type {
   Category,
+  DocumentCleanupResult,
   DocumentMetadata,
   DocumentStatus,
   Taxonomy,
@@ -87,6 +89,23 @@ export function DocumentAdminWorkspace() {
   }
 
   async function transition(document: VersionedManifest, action: string) {
+    if (action === "cleanup") {
+      const remainingMinutes = cleanupRemainingMinutes(
+        document.manifest.updatedAt,
+      );
+      if (remainingMinutes > 0) {
+        window.alert(
+          `Faltan ${remainingMinutes} minuto${remainingMinutes === 1 ? "" : "s"} para poder limpiar las versiones anteriores.`,
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          "Se conservarán la versión activa y la inmediatamente anterior. ¿Continuar?",
+        )
+      )
+        return;
+    }
     if (
       action === "purge" &&
       !window.confirm(
@@ -97,7 +116,17 @@ export function DocumentAdminWorkspace() {
     setError("");
     try {
       const url = `/api/admin/documents/${document.manifest.id}/actions/${action}`;
-      if (action === "purge") {
+      if (action === "cleanup") {
+        const result = await adminRequest<DocumentCleanupResult>(url, {
+          method: "POST",
+          body: JSON.stringify({ expectedEtag: document.etag }),
+        });
+        window.alert(
+          result.deletedFiles
+            ? `Se eliminaron ${result.deletedFiles} archivo${result.deletedFiles === 1 ? "" : "s"} (${formatBytes(result.deletedBytes)}).`
+            : "No había versiones antiguas para eliminar.",
+        );
+      } else if (action === "purge") {
         await adminRequest(url, { method: "POST" });
         setDocuments((current) =>
           current.filter((item) => item.manifest.id !== document.manifest.id),
@@ -662,6 +691,11 @@ function DocumentList({
 }) {
   const [status, setStatus] = useState<DocumentStatus | "all">("all");
   const [page, setPage] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
   const filtered = documents.filter(
     (document) => status === "all" || document.manifest.status === status,
   );
@@ -722,12 +756,34 @@ function DocumentList({
                 </button>
               ) : null}
               {document.manifest.status === "published" ? (
-                <button
-                  onClick={() => onAction(document, "unpublish")}
-                  className="button-secondary"
-                >
-                  Despublicar
-                </button>
+                <>
+                  <button
+                    onClick={() => onAction(document, "unpublish")}
+                    className="button-secondary"
+                  >
+                    Despublicar
+                  </button>
+                  <button
+                    aria-disabled={
+                      cleanupRemainingMinutes(
+                        document.manifest.updatedAt,
+                        now,
+                      ) > 0
+                    }
+                    title={cleanupButtonTitle(document.manifest.updatedAt, now)}
+                    onClick={() => onAction(document, "cleanup")}
+                    className={`button-secondary ${
+                      cleanupRemainingMinutes(
+                        document.manifest.updatedAt,
+                        now,
+                      ) > 0
+                        ? "cursor-not-allowed opacity-50"
+                        : ""
+                    }`}
+                  >
+                    Limpiar versiones
+                  </button>
+                </>
               ) : null}
               {document.manifest.status !== "trashed" ? (
                 <button
@@ -959,6 +1015,19 @@ function messageOf(error: unknown) {
   return error instanceof Error
     ? error.message
     : "La operación no pudo completarse.";
+}
+
+function cleanupButtonTitle(updatedAt: string, now: number): string {
+  const remainingMinutes = cleanupRemainingMinutes(updatedAt, now);
+  return remainingMinutes > 0
+    ? `Disponible en ${remainingMinutes} minuto${remainingMinutes === 1 ? "" : "s"}`
+    : "Conservar la versión activa y la anterior";
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function upsertDocument(

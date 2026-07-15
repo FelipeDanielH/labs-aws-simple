@@ -111,6 +111,62 @@ describe("VercelBlobContentRepository", () => {
 
     expect(blobMocks.del).not.toHaveBeenCalledWith(markdownPath);
   });
+
+  it("limpia versiones antiguas después de diez minutos y conserva dos", async () => {
+    const updatedAt = new Date(Date.now() - 11 * 60 * 1000);
+    const manifest = {
+      ...createManifest(),
+      status: "published" as const,
+      updatedAt: updatedAt.toISOString(),
+    };
+    const previousPath =
+      "aws-labs/v1/documents/laboratorio-abc123/document-previous.md";
+    const oldPath = "aws-labs/v1/documents/laboratorio-abc123/document-old.md";
+    const blob = (pathname: string, uploadedAt: Date, size: number) => ({
+      pathname,
+      url: `https://store.public.blob.vercel-storage.com/${pathname}`,
+      etag: `${pathname}-etag`,
+      uploadedAt,
+      size,
+    });
+    blobMocks.list.mockResolvedValue({
+      blobs: [
+        blob(manifestPath, updatedAt, 500),
+        blob(markdownPath, updatedAt, 1_000),
+        blob(previousPath, new Date(updatedAt.getTime() - 60_000), 900),
+        blob(oldPath, new Date(updatedAt.getTime() - 120_000), 800),
+      ],
+      cursor: undefined,
+      hasMore: false,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (input: string | URL | Request) =>
+          new Response(
+            String(input).includes("manifest.json")
+              ? JSON.stringify(manifest)
+              : "# Markdown",
+            { status: 200 },
+          ),
+      ),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const result = await repository.cleanupVersions(
+      "document-1",
+      "current-manifest-etag",
+    );
+
+    expect(result).toEqual({
+      deletedFiles: 1,
+      deletedBytes: 800,
+      retainedFiles: 2,
+    });
+    expect(blobMocks.del).toHaveBeenCalledWith([
+      `https://store.public.blob.vercel-storage.com/${oldPath}`,
+    ]);
+  });
 });
 
 function createManifest(): DocumentManifest {
