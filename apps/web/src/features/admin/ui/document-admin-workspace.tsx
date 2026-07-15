@@ -38,6 +38,9 @@ export function DocumentAdminWorkspace() {
     null,
   );
   const [selected, setSelected] = useState<VersionedDocument | null>(null);
+  const [documentCache, setDocumentCache] = useState<
+    Record<string, VersionedDocument>
+  >({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -64,12 +67,20 @@ export function DocumentAdminWorkspace() {
     void refresh();
   }, []);
 
-  async function openDocument(id: string) {
+  async function openDocument(document: VersionedManifest) {
     setError("");
+    const id = document.manifest.id;
+    const cached = documentCache[id];
+    if (cached?.etag === document.etag) {
+      setSelected(cached);
+      return;
+    }
     try {
-      setSelected(
-        await adminRequest<VersionedDocument>(`/api/admin/documents/${id}`),
+      const loaded = await adminRequest<VersionedDocument>(
+        `/api/admin/documents/${id}`,
       );
+      setDocumentCache((current) => ({ ...current, [id]: loaded }));
+      setSelected(loaded);
     } catch (caught) {
       setError(messageOf(caught));
     }
@@ -91,12 +102,26 @@ export function DocumentAdminWorkspace() {
         setDocuments((current) =>
           current.filter((item) => item.manifest.id !== document.manifest.id),
         );
+        setDocumentCache((current) => {
+          const next = { ...current };
+          delete next[document.manifest.id];
+          return next;
+        });
       } else {
         const updated = await adminRequest<VersionedManifest>(url, {
           method: "POST",
           body: JSON.stringify({ expectedEtag: document.etag }),
         });
         setDocuments((current) => upsertDocument(current, updated));
+        setDocumentCache((current) => {
+          const cached = current[document.manifest.id];
+          return cached
+            ? {
+                ...current,
+                [document.manifest.id]: { ...cached, ...updated },
+              }
+            : current;
+        });
       }
       setSelected(null);
       router.refresh();
@@ -123,6 +148,15 @@ export function DocumentAdminWorkspace() {
       );
       setSelected(null);
       setDocuments((current) => upsertDocument(current, updated));
+      setDocumentCache((current) => {
+        const cached = current[document.manifest.id];
+        return cached
+          ? {
+              ...current,
+              [document.manifest.id]: { ...cached, ...updated },
+            }
+          : current;
+      });
       router.refresh();
     } catch (caught) {
       setError(messageOf(caught));
@@ -163,6 +197,10 @@ export function DocumentAdminWorkspace() {
         taxonomy={taxonomy}
         onCreated={(document) => {
           setDocuments((current) => upsertDocument(current, document));
+          setDocumentCache((current) => ({
+            ...current,
+            [document.manifest.id]: document,
+          }));
           router.refresh();
         }}
       />
@@ -175,6 +213,10 @@ export function DocumentAdminWorkspace() {
           onSaved={(document) => {
             setSelected(null);
             setDocuments((current) => upsertDocument(current, document));
+            setDocumentCache((current) => ({
+              ...current,
+              [document.manifest.id]: document,
+            }));
             router.refresh();
           }}
         />
@@ -614,7 +656,7 @@ function DocumentList({
 }: {
   documents: VersionedManifest[];
   loading: boolean;
-  onEdit: (id: string) => void;
+  onEdit: (document: VersionedManifest) => void;
   onTrash: (document: VersionedManifest) => void;
   onAction: (document: VersionedManifest, action: string) => void;
 }) {
@@ -666,7 +708,7 @@ function DocumentList({
             </div>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => onEdit(document.manifest.id)}
+                onClick={() => onEdit(document)}
                 className="button-secondary"
               >
                 Editar

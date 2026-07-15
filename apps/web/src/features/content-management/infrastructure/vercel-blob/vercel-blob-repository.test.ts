@@ -97,6 +97,20 @@ describe("VercelBlobContentRepository", () => {
     expect(document.manifest.status).toBe("trashed");
     expect(blobMocks.head).not.toHaveBeenCalledWith(markdownPath);
   });
+
+  it("conserva la generación Markdown anterior hasta la purga", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    await repository.update("document-1", {
+      markdown: "# Segunda generación",
+      metadata: createManifest().metadata,
+      categoryId: null,
+      subcategoryId: null,
+      expectedEtag: "current-manifest-etag",
+    });
+
+    expect(blobMocks.del).not.toHaveBeenCalledWith(markdownPath);
+  });
 });
 
 function createManifest(): DocumentManifest {

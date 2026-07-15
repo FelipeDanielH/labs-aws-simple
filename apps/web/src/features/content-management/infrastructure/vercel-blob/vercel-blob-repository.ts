@@ -134,7 +134,9 @@ export class VercelBlobContentRepository
         manifest,
         input.expectedEtag,
       );
-      await del(current.manifest.markdownPathname).catch(() => undefined);
+      // Public Blob manifests can remain cached briefly after an overwrite.
+      // Keep immutable Markdown generations until purge so a cached manifest
+      // can never become a dangling reference.
       if (manifest.status === "published") await this.rebuildPublicCatalog();
       return { manifest, etag: stored.etag, markdown: input.markdown };
     } catch (error) {
