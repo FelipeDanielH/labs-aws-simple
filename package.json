@@ -1,0 +1,26 @@
+{
+  "name": "scalable-web-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "check": "turbo run lint typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ui:add": "shadcn add --cwd packages/ui"
+  },
+  "devDependencies": {
+    "prettier": "3.9.5",
+    "shadcn": "4.13.0",
+    "turbo": "2.10.5",
+    "typescript": "5.9.3"
+  }
+}
