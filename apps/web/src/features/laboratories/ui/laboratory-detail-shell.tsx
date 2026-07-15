@@ -118,9 +118,9 @@ export function LaboratoryDetailShell({
           ) : null}
         </aside>
 
-        <div className="min-w-0 px-4 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
+        <div className="min-w-0 px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
           {hasTableOfContents ? (
-            <details className="mx-auto mb-5 max-w-5xl rounded-xl border bg-card p-4 xl:hidden">
+            <details className="mb-5 w-full rounded-xl border bg-card p-4 xl:hidden">
               <summary className="cursor-pointer text-sm font-semibold">
                 En esta página
               </summary>
@@ -133,7 +133,7 @@ export function LaboratoryDetailShell({
               </div>
             </details>
           ) : null}
-          <article className="mx-auto max-w-5xl rounded-2xl border bg-card p-6 sm:p-10">
+          <article className="w-full rounded-2xl border bg-card p-6 sm:p-10">
             {children}
           </article>
         </div>
