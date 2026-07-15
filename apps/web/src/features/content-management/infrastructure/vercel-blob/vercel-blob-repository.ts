@@ -22,6 +22,7 @@ import type {
   Taxonomy,
   UpdateDocumentInput,
   VersionedDocument,
+  VersionedManifest,
   VersionedTaxonomy,
 } from "../../domain/models";
 import { normalizeBlobEtag, versionedBlobUrl } from "./blob-etag";
@@ -35,18 +36,16 @@ interface LocatedBlob {
 export class VercelBlobContentRepository
   implements DocumentRepository, TaxonomyRepository
 {
-  async list(status?: DocumentStatus): Promise<DocumentManifest[]> {
+  async list(status?: DocumentStatus): Promise<VersionedManifest[]> {
     this.assertConfigured();
     const manifests = await this.listManifests();
     return manifests
-      .map((item) => item.manifest)
-      .filter((manifest) => !status || manifest.status === status)
-      .sort(compareDocuments);
+      .filter((item) => !status || item.manifest.status === status)
+      .sort((left, right) => compareDocuments(left.manifest, right.manifest));
   }
 
   async findById(id: string): Promise<VersionedDocument | null> {
-    const manifests = await this.listManifests();
-    const match = manifests.find((item) => item.manifest.id === id);
+    const match = await this.findManifestById(id);
     return match ? this.withMarkdown(match.manifest, match.etag) : null;
   }
 
@@ -107,7 +106,7 @@ export class VercelBlobContentRepository
     id: string,
     input: UpdateDocumentInput,
   ): Promise<VersionedDocument> {
-    const current = await this.requireDocument(id);
+    const current = await this.requireManifest(id);
     if (current.etag !== input.expectedEtag) this.throwConflict();
 
     const markdownPathname = contentPaths.markdown(
@@ -148,8 +147,8 @@ export class VercelBlobContentRepository
     id: string,
     status: DocumentStatus,
     expectedEtag: string,
-  ): Promise<VersionedDocument> {
-    const current = await this.requireDocument(id);
+  ): Promise<VersionedManifest> {
+    const current = await this.requireManifest(id);
     if (current.etag !== expectedEtag) this.throwConflict();
     assertTransition(current.manifest.status, status);
     const now = new Date().toISOString();
@@ -170,14 +169,14 @@ export class VercelBlobContentRepository
         expectedEtag,
       );
       await this.rebuildPublicCatalog();
-      return { ...current, manifest, etag: stored.etag };
+      return { manifest, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
     }
   }
 
   async purge(id: string): Promise<void> {
-    const current = await this.requireDocument(id);
+    const current = await this.requireManifest(id);
     if (current.manifest.status !== "trashed") {
       throw new ContentManagementError(
         "INVALID_INPUT",
@@ -241,12 +240,19 @@ export class VercelBlobContentRepository
     }
   }
 
-  private async requireDocument(id: string): Promise<VersionedDocument> {
-    const document = await this.findById(id);
-    if (!document) {
+  private async findManifestById(
+    id: string,
+  ): Promise<VersionedManifest | null> {
+    const manifests = await this.listManifests();
+    return manifests.find((item) => item.manifest.id === id) ?? null;
+  }
+
+  private async requireManifest(id: string): Promise<VersionedManifest> {
+    const manifest = await this.findManifestById(id);
+    if (!manifest) {
       throw new ContentManagementError("NOT_FOUND", "Documento no encontrado.");
     }
-    return document;
+    return manifest;
   }
 
   private async withMarkdown(

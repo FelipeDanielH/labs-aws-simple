@@ -41,9 +41,12 @@ export type DocumentManifest = {
   deletedAt: string | null;
 };
 
-export type VersionedDocument = {
+export type VersionedManifest = {
   manifest: DocumentManifest;
   etag: string;
+};
+
+export type VersionedDocument = VersionedManifest & {
   markdown: string;
 };
 

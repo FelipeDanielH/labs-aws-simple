@@ -44,6 +44,11 @@ describe("VercelBlobContentRepository", () => {
           ? "current-manifest-etag"
           : "current-markdown-etag",
     }));
+    blobMocks.put.mockResolvedValue({
+      pathname: manifestPath,
+      url: `https://store.public.blob.vercel-storage.com/${manifestPath}`,
+      etag: "updated-manifest-etag",
+    });
 
     const manifest = createManifest();
     vi.stubGlobal(
@@ -78,6 +83,19 @@ describe("VercelBlobContentRepository", () => {
       expect.stringContaining("manifest.json?v=current-manifest-etag"),
       { cache: "no-store" },
     );
+  });
+
+  it("cambia el estado usando sólo el manifiesto, sin descargar Markdown", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.transition(
+      "document-1",
+      "trashed",
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.status).toBe("trashed");
+    expect(blobMocks.head).not.toHaveBeenCalledWith(markdownPath);
   });
 });
 

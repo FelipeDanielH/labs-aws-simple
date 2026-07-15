@@ -11,11 +11,11 @@ import {
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
 import type {
   Category,
-  DocumentManifest,
   DocumentMetadata,
   DocumentStatus,
   Taxonomy,
   VersionedDocument,
+  VersionedManifest,
   VersionedTaxonomy,
 } from "@/features/content-management/domain/models";
 import { MammothDocxConverter } from "@/features/content-management/infrastructure/browser/mammoth-docx-converter";
@@ -33,7 +33,7 @@ const emptyMetadata: DocumentMetadata = {
 
 export function DocumentAdminWorkspace() {
   const router = useRouter();
-  const [documents, setDocuments] = useState<DocumentManifest[]>([]);
+  const [documents, setDocuments] = useState<VersionedManifest[]>([]);
   const [taxonomyState, setTaxonomyState] = useState<VersionedTaxonomy | null>(
     null,
   );
@@ -46,7 +46,9 @@ export function DocumentAdminWorkspace() {
     setError("");
     try {
       const [documentsResult, taxonomyResult] = await Promise.all([
-        adminRequest<{ documents: DocumentManifest[] }>("/api/admin/documents"),
+        adminRequest<{ documents: VersionedManifest[] }>(
+          "/api/admin/documents",
+        ),
         adminRequest<VersionedTaxonomy>("/api/admin/taxonomy"),
       ]);
       setDocuments(documentsResult.documents);
@@ -63,6 +65,7 @@ export function DocumentAdminWorkspace() {
   }, []);
 
   async function openDocument(id: string) {
+    setError("");
     try {
       setSelected(
         await adminRequest<VersionedDocument>(`/api/admin/documents/${id}`),
@@ -72,7 +75,7 @@ export function DocumentAdminWorkspace() {
     }
   }
 
-  async function transition(document: DocumentManifest, action: string) {
+  async function transition(document: VersionedManifest, action: string) {
     if (
       action === "purge" &&
       !window.confirm(
@@ -80,38 +83,46 @@ export function DocumentAdminWorkspace() {
       )
     )
       return;
+    setError("");
     try {
-      const current = await adminRequest<VersionedDocument>(
-        `/api/admin/documents/${document.id}`,
-      );
-      await adminRequest(
-        `/api/admin/documents/${document.id}/actions/${action}`,
-        {
+      const url = `/api/admin/documents/${document.manifest.id}/actions/${action}`;
+      if (action === "purge") {
+        await adminRequest(url, { method: "POST" });
+        setDocuments((current) =>
+          current.filter((item) => item.manifest.id !== document.manifest.id),
+        );
+      } else {
+        const updated = await adminRequest<VersionedManifest>(url, {
           method: "POST",
-          body: JSON.stringify({ expectedEtag: current.etag }),
-        },
-      );
+          body: JSON.stringify({ expectedEtag: document.etag }),
+        });
+        setDocuments((current) => upsertDocument(current, updated));
+      }
       setSelected(null);
-      await refresh();
       router.refresh();
     } catch (caught) {
       setError(messageOf(caught));
     }
   }
 
-  async function trash(document: DocumentManifest) {
-    if (!window.confirm(`Enviar “${document.metadata.title}” a la papelera?`))
+  async function trash(document: VersionedManifest) {
+    if (
+      !window.confirm(
+        `Enviar “${document.manifest.metadata.title}” a la papelera?`,
+      )
+    )
       return;
+    setError("");
     try {
-      const current = await adminRequest<VersionedDocument>(
-        `/api/admin/documents/${document.id}`,
+      const updated = await adminRequest<VersionedManifest>(
+        `/api/admin/documents/${document.manifest.id}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ expectedEtag: document.etag }),
+        },
       );
-      await adminRequest(`/api/admin/documents/${document.id}`, {
-        method: "DELETE",
-        body: JSON.stringify({ expectedEtag: current.etag }),
-      });
       setSelected(null);
-      await refresh();
+      setDocuments((current) => upsertDocument(current, updated));
       router.refresh();
     } catch (caught) {
       setError(messageOf(caught));
@@ -151,7 +162,7 @@ export function DocumentAdminWorkspace() {
       <DocxImportPanel
         taxonomy={taxonomy}
         onCreated={(document) => {
-          setDocuments((current) => upsertDocument(current, document.manifest));
+          setDocuments((current) => upsertDocument(current, document));
           router.refresh();
         }}
       />
@@ -163,9 +174,7 @@ export function DocumentAdminWorkspace() {
           onClose={() => setSelected(null)}
           onSaved={(document) => {
             setSelected(null);
-            setDocuments((current) =>
-              upsertDocument(current, document.manifest),
-            );
+            setDocuments((current) => upsertDocument(current, document));
             router.refresh();
           }}
         />
@@ -603,16 +612,16 @@ function DocumentList({
   onTrash,
   onAction,
 }: {
-  documents: DocumentManifest[];
+  documents: VersionedManifest[];
   loading: boolean;
   onEdit: (id: string) => void;
-  onTrash: (document: DocumentManifest) => void;
-  onAction: (document: DocumentManifest, action: string) => void;
+  onTrash: (document: VersionedManifest) => void;
+  onAction: (document: VersionedManifest, action: string) => void;
 }) {
   const [status, setStatus] = useState<DocumentStatus | "all">("all");
   const [page, setPage] = useState(0);
   const filtered = documents.filter(
-    (document) => status === "all" || document.status === status,
+    (document) => status === "all" || document.manifest.status === status,
   );
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const visible = filtered.slice(page * 10, page * 10 + 10);
@@ -643,24 +652,26 @@ function DocumentList({
       <div className="space-y-3">
         {visible.map((document) => (
           <article
-            key={document.id}
+            key={document.manifest.id}
             className="flex flex-col justify-between gap-4 rounded-xl border p-4 sm:flex-row sm:items-center"
           >
             <div>
-              <h3 className="font-semibold">{document.metadata.title}</h3>
+              <h3 className="font-semibold">
+                {document.manifest.metadata.title}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                {document.status} ·{" "}
-                {new Date(document.updatedAt).toLocaleString()}
+                {document.manifest.status} ·{" "}
+                {new Date(document.manifest.updatedAt).toLocaleString()}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => onEdit(document.id)}
+                onClick={() => onEdit(document.manifest.id)}
                 className="button-secondary"
               >
                 Editar
               </button>
-              {document.status === "draft" ? (
+              {document.manifest.status === "draft" ? (
                 <button
                   onClick={() => onAction(document, "publish")}
                   className="button-primary"
@@ -668,7 +679,7 @@ function DocumentList({
                   Publicar
                 </button>
               ) : null}
-              {document.status === "published" ? (
+              {document.manifest.status === "published" ? (
                 <button
                   onClick={() => onAction(document, "unpublish")}
                   className="button-secondary"
@@ -676,7 +687,7 @@ function DocumentList({
                   Despublicar
                 </button>
               ) : null}
-              {document.status !== "trashed" ? (
+              {document.manifest.status !== "trashed" ? (
                 <button
                   onClick={() => onTrash(document)}
                   className="button-danger"
@@ -909,10 +920,13 @@ function messageOf(error: unknown) {
 }
 
 function upsertDocument(
-  documents: DocumentManifest[],
-  updated: DocumentManifest,
-): DocumentManifest[] {
-  return [updated, ...documents.filter((item) => item.id !== updated.id)].sort(
-    (left, right) => right.updatedAt.localeCompare(left.updatedAt),
+  documents: VersionedManifest[],
+  updated: VersionedManifest,
+): VersionedManifest[] {
+  return [
+    updated,
+    ...documents.filter((item) => item.manifest.id !== updated.manifest.id),
+  ].sort((left, right) =>
+    right.manifest.updatedAt.localeCompare(left.manifest.updatedAt),
   );
 }

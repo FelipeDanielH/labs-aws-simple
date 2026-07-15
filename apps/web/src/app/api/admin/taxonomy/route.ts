@@ -33,7 +33,7 @@ export async function PUT(request: Request) {
         item.subcategories.map((subcategory) => subcategory.id),
       ),
     );
-    for (const document of documents) {
+    for (const { manifest: document } of documents) {
       if (document.categoryId && !categoryIds.has(document.categoryId)) {
         throw new Error("No se puede eliminar una categoría que está en uso.");
       }
