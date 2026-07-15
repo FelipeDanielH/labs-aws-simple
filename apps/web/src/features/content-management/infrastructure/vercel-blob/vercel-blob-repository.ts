@@ -17,6 +17,7 @@ import type {
   VersionedDocument,
   VersionedTaxonomy,
 } from "../../domain/models";
+import { normalizeBlobEtag } from "./blob-etag";
 
 const PUBLIC_OPTIONS = { access: "public" as const, useCache: false };
 
@@ -285,7 +286,7 @@ export class VercelBlobContentRepository
     if (!result || result.statusCode !== 200) return null;
     return {
       value: await new Response(result.stream).text(),
-      etag: result.blob.etag,
+      etag: normalizeBlobEtag(result.blob.etag),
     };
   }
 
@@ -296,19 +297,20 @@ export class VercelBlobContentRepository
       : null;
   }
 
-  private writeJson(
+  private async writeJson(
     pathname: string,
     value: unknown,
     ifMatch?: string,
     allowOverwrite = false,
   ) {
-    return put(pathname, JSON.stringify(value), {
+    const stored = await put(pathname, JSON.stringify(value), {
       access: "public",
       contentType: "application/json; charset=utf-8",
       cacheControlMaxAge: 60,
-      ifMatch,
+      ifMatch: ifMatch ? normalizeBlobEtag(ifMatch) : undefined,
       allowOverwrite: allowOverwrite || Boolean(ifMatch),
     });
+    return { ...stored, etag: normalizeBlobEtag(stored.etag) };
   }
 
   private assertConfigured(): void {

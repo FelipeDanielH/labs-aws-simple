@@ -9,6 +9,7 @@ import {
   metadataSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
+import { normalizeBlobEtag } from "./infrastructure/vercel-blob/blob-etag";
 import { assertTaxonomySelection } from "./server/taxonomy-selection";
 
 describe("content management contracts", () => {
@@ -57,5 +58,11 @@ describe("content management contracts", () => {
       assertTaxonomySelection(taxonomy, "storage", "s3"),
     ).not.toThrow();
     expect(() => assertTaxonomySelection(taxonomy, "storage", "ec2")).toThrow();
+  });
+
+  it("normaliza ETags HTTP antes de comparar versiones", () => {
+    expect(normalizeBlobEtag('"version-1"')).toBe("version-1");
+    expect(normalizeBlobEtag('W/"version-1"')).toBe("version-1");
+    expect(normalizeBlobEtag(" version-1 ")).toBe("version-1");
   });
 });
