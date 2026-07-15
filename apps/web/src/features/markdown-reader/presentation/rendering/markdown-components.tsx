@@ -92,7 +92,12 @@ export const markdownComponents: Components = {
   },
   hr: ({ node: _node, ...props }) => <hr className="my-8" {...props} />,
   table: ({ node: _node, ...props }) => (
-    <table className="w-full border-collapse text-sm" {...props} />
+    <div className="my-6 overflow-x-auto rounded-xl border">
+      <table
+        className="w-full min-w-[40rem] border-collapse text-sm"
+        {...props}
+      />
+    </div>
   ),
   thead: ({ node: _node, ...props }) => (
     <thead className="bg-muted/70" {...props} />
@@ -101,9 +106,14 @@ export const markdownComponents: Components = {
     <tr className="border-b last:border-0" {...props} />
   ),
   th: ({ node: _node, ...props }) => (
-    <th className="border-b px-4 py-3 text-left font-semibold" {...props} />
+    <th
+      className="border-r border-b px-4 py-3 text-left font-semibold last:border-r-0"
+      {...props}
+    />
   ),
-  td: ({ node: _node, ...props }) => <td className="px-4 py-3" {...props} />,
+  td: ({ node: _node, ...props }) => (
+    <td className="border-r px-4 py-3 align-top last:border-r-0" {...props} />
+  ),
   img: ({ node: _node, alt = "", ...props }) => (
     // Markdown and embedded HTML images do not guarantee intrinsic dimensions.
     // eslint-disable-next-line @next/next/no-img-element

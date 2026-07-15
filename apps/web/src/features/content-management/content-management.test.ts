@@ -10,6 +10,7 @@ import {
   metadataSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
+import { convertDocxHtmlToMarkdown } from "./infrastructure/browser/mammoth-docx-converter";
 import {
   normalizeBlobEtag,
   versionedBlobUrl,
@@ -89,5 +90,34 @@ describe("content management contracts", () => {
     expect(
       cleanupRemainingMinutes(updatedAt, Date.parse("2026-07-15T12:10:00Z")),
     ).toBe(0);
+  });
+
+  it("convierte tablas DOCX con celdas de párrafo a GFM válido", () => {
+    const markdown = convertDocxHtmlToMarkdown(`
+      <table>
+        <tr>
+          <td><p><strong>Recurso</strong></p></td>
+          <td><p><strong>Descripción</strong></p></td>
+        </tr>
+        <tr>
+          <td><p>Amazon EC2</p></td>
+          <td><p>Primera línea</p><p>Segunda línea | detalle</p></td>
+        </tr>
+      </table>
+    `);
+
+    expect(markdown).toContain(
+      "| **Recurso** | **Descripción** |\n| --- | --- |",
+    );
+    expect(markdown).toContain(
+      "| Amazon EC2 | Primera línea<br>Segunda línea \\| detalle |",
+    );
+  });
+
+  it("conserva como HTML las tablas DOCX con celdas combinadas", () => {
+    const markdown = convertDocxHtmlToMarkdown(
+      '<table><tr><td colspan="2">Celda combinada</td></tr></table>',
+    );
+    expect(markdown).toContain('<td colspan="2">Celda combinada</td>');
   });
 });

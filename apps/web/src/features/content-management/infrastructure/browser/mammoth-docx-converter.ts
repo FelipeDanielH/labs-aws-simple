@@ -63,15 +63,73 @@ export class MammothDocxConverter implements DocxConverter {
       emDelimiter: "*",
       strongDelimiter: "**",
     });
-    turndown.use(gfm);
-    turndown.keep(["details", "summary", "iframe", "video", "audio"]);
 
     return {
-      markdown: normalizeMarkdown(turndown.turndown(result.value)),
+      markdown: convertDocxHtmlToMarkdown(result.value, turndown),
       assets,
       warnings: result.messages.map((message) => message.message),
     };
   }
+}
+
+export function convertDocxHtmlToMarkdown(
+  html: string,
+  service = createTurndownService(),
+): string {
+  service.use(gfm);
+  service.addRule("docxTables", {
+    filter: (node) => node.nodeName === "TABLE",
+    replacement: (_content, node) =>
+      convertTable(node as HTMLTableElement, service),
+  });
+  service.keep(["details", "summary", "iframe", "video", "audio"]);
+  return normalizeMarkdown(service.turndown(html));
+}
+
+function createTurndownService(): TurndownService {
+  return new TurndownService({
+    headingStyle: "atx",
+    bulletListMarker: "-",
+    codeBlockStyle: "fenced",
+    emDelimiter: "*",
+    strongDelimiter: "**",
+  });
+}
+
+function convertTable(
+  table: HTMLTableElement,
+  service: TurndownService,
+): string {
+  const rows = Array.from(table.rows);
+  if (!rows.length) return "";
+  if (
+    rows.some((row) =>
+      Array.from(row.cells).some(
+        (cell) => cell.colSpan > 1 || cell.rowSpan > 1,
+      ),
+    )
+  ) {
+    return `\n\n${table.outerHTML}\n\n`;
+  }
+
+  const width = Math.max(...rows.map((row) => row.cells.length));
+  const markdownRows = rows.map((row) => {
+    const cells = Array.from(row.cells, (cell) =>
+      normalizeTableCell(service.turndown(cell.innerHTML)),
+    );
+    while (cells.length < width) cells.push("");
+    return `| ${cells.join(" | ")} |`;
+  });
+  const separator = `| ${Array.from({ length: width }, () => "---").join(" | ")} |`;
+  return `\n\n${markdownRows[0]}\n${separator}\n${markdownRows.slice(1).join("\n")}\n\n`;
+}
+
+function normalizeTableCell(markdown: string): string {
+  return markdown
+    .trim()
+    .replace(/\r?\n+/g, "<br>")
+    .replace(/(?<!\\)\|/g, "\\|")
+    .replace(/^(?:<br>)+|(?:<br>)+$/g, "");
 }
 
 function validateDocx(file: File) {
