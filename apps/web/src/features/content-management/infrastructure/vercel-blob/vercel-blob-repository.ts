@@ -312,10 +312,11 @@ export class VercelBlobContentRepository
   }
 
   private assertConfigured(): void {
-    if (
-      !process.env.BLOB_READ_WRITE_TOKEN &&
-      !(process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID)
-    ) {
+    // @vercel/blob resolves Vercel's short-lived OIDC credential
+    // asynchronously. BLOB_STORE_ID is therefore sufficient to identify a
+    // connected store; requiring VERCEL_OIDC_TOKEN here would reject valid
+    // deployments before the SDK can obtain the token.
+    if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
       throw new ContentManagementError(
         "NOT_CONFIGURED",
         "Vercel Blob todavía no está conectado al proyecto.",
