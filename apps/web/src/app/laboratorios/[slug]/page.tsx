@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getContentRepository } from "@/features/content-management/server/container";
 import { LaboratoryDetailShell } from "@/features/laboratories/ui/laboratory-detail-shell";
+import { extractMarkdownTableOfContents } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
 import { MarkdownRenderer } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +76,7 @@ export default async function LaboratoryDetailPage({ params }: Props) {
   if (subcategory) backParams.set("subcategoria", subcategory.slug);
   const backQuery = backParams.toString();
   const backHref = backQuery ? `/laboratorios?${backQuery}` : "/laboratorios";
+  const tableOfContents = extractMarkdownTableOfContents(document.markdown);
 
   return (
     <LaboratoryDetailShell
@@ -83,6 +85,7 @@ export default async function LaboratoryDetailPage({ params }: Props) {
       subcategoryName={subcategory?.name}
       currentLaboratoryId={entry.id}
       laboratories={laboratories}
+      tableOfContents={tableOfContents}
     >
       <MarkdownRenderer
         source={document.markdown}

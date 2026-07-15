@@ -5,6 +5,12 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import {
+  LaboratoryTableOfContents,
+  useActiveLaboratoryHeading,
+} from "./laboratory-table-of-contents";
+import type { MarkdownTableOfContentsItem } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
+
 export type LaboratoryNavigationItem = {
   id: string;
   slug: string;
@@ -18,6 +24,7 @@ export function LaboratoryDetailShell({
   currentLaboratoryId,
   laboratories,
   subcategoryName,
+  tableOfContents,
 }: {
   backHref: string;
   categoryName: string;
@@ -25,18 +32,22 @@ export function LaboratoryDetailShell({
   currentLaboratoryId: string;
   laboratories: LaboratoryNavigationItem[];
   subcategoryName?: string;
+  tableOfContents: MarkdownTableOfContentsItem[];
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { activeId, setActiveId } = useActiveLaboratoryHeading(tableOfContents);
+  const hasTableOfContents = tableOfContents.length > 0;
+  const gridClassName = hasTableOfContents
+    ? isSidebarOpen
+      ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_16rem]"
+      : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)] xl:grid-cols-[4.5rem_minmax(0,1fr)_16rem]"
+    : isSidebarOpen
+      ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)]"
+      : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)]";
 
   return (
     <main className="min-h-[calc(100vh-4rem)]">
-      <div
-        className={
-          isSidebarOpen
-            ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)]"
-            : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)]"
-        }
-      >
+      <div className={gridClassName}>
         <aside className="border-b bg-card lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)] lg:overflow-y-auto lg:border-r lg:border-b-0">
           <div
             className={
@@ -108,10 +119,36 @@ export function LaboratoryDetailShell({
         </aside>
 
         <div className="min-w-0 px-4 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
+          {hasTableOfContents ? (
+            <details className="mx-auto mb-5 max-w-5xl rounded-xl border bg-card p-4 xl:hidden">
+              <summary className="cursor-pointer text-sm font-semibold">
+                En esta página
+              </summary>
+              <div className="mt-3">
+                <LaboratoryTableOfContents
+                  activeId={activeId}
+                  items={tableOfContents}
+                  onNavigate={setActiveId}
+                />
+              </div>
+            </details>
+          ) : null}
           <article className="mx-auto max-w-5xl rounded-2xl border bg-card p-6 sm:p-10">
             {children}
           </article>
         </div>
+
+        {hasTableOfContents ? (
+          <aside className="hidden px-5 py-12 xl:block">
+            <div className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto">
+              <LaboratoryTableOfContents
+                activeId={activeId}
+                items={tableOfContents}
+                onNavigate={setActiveId}
+              />
+            </div>
+          </aside>
+        ) : null}
       </div>
     </main>
   );

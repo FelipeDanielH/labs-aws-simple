@@ -3,6 +3,10 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import {
+  rehypeRestoreMarkdownHeadingIds,
+  remarkMarkdownHeadingIndex,
+} from "./markdown-heading-index";
 import { markdownComponents } from "./markdown-components";
 import { markdownSanitizeSchema } from "./markdown-sanitize-schema";
 import { rehypeNeutralizeActiveHtml } from "./rehype-neutralize-active-html";
@@ -21,11 +25,12 @@ export function MarkdownRenderer({
   return (
     <div className="markdown-document overflow-hidden">
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMarkdownHeadingIndex]}
         rehypePlugins={[
           rehypeRaw,
           rehypeNeutralizeActiveHtml,
           [rehypeSanitize, markdownSanitizeSchema],
+          rehypeRestoreMarkdownHeadingIds,
         ]}
         components={{ ...markdownComponents, ...components }}
         urlTransform={(url) => transformMarkdownUrl(url, baseUrl)}

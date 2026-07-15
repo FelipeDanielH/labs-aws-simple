@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { MarkdownRenderer } from "./markdown-renderer";
 import { transformMarkdownUrl } from "./markdown-renderer";
+import { extractMarkdownTableOfContents } from "./markdown-heading-index";
 
 describe("MarkdownRenderer", () => {
   it("resuelve imágenes relativas contra la carpeta Blob del Markdown", () => {
@@ -35,6 +36,42 @@ describe("MarkdownRenderer", () => {
     expect(markup).toContain("<table");
     expect(markup).toContain("<details");
     expect(markup).toContain("<mark>Contenido HTML visible</mark>");
+  });
+
+  it("genera un índice y anclas estables para encabezados Markdown", () => {
+    const source = `# Laboratorio
+
+## Objetivo general
+
+### Red y **seguridad**
+
+## Objetivo general`;
+    const tableOfContents = extractMarkdownTableOfContents(source);
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownRenderer, { source }),
+    );
+
+    expect(tableOfContents).toEqual([
+      {
+        id: "section-objetivo-general",
+        title: "Objetivo general",
+        level: 2,
+      },
+      {
+        id: "section-red-y-seguridad",
+        title: "Red y seguridad",
+        level: 3,
+      },
+      {
+        id: "section-objetivo-general-1",
+        title: "Objetivo general",
+        level: 2,
+      },
+    ]);
+    expect(markup).toMatch(/<h2[^>]*id="section-objetivo-general"/);
+    expect(markup).toMatch(/<h3[^>]*id="section-red-y-seguridad"/);
+    expect(markup).toMatch(/<h2[^>]*id="section-objetivo-general-1"/);
+    expect(markup).not.toContain("data-toc-id");
   });
 
   it("neutraliza scripts, eventos y protocolos ejecutables", () => {

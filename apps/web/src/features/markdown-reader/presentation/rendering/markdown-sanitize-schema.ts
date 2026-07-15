@@ -86,6 +86,7 @@ export const markdownSanitizeSchema = {
     "*": [
       ...(defaultSchema.attributes?.["*"] ?? []),
       "className",
+      "dataTocId",
       "dir",
       "hidden",
       "lang",
