@@ -140,11 +140,12 @@ export function LaboratoryDetailShell({
 
         {hasTableOfContents ? (
           <aside className="hidden px-5 py-12 xl:block">
-            <div className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            <div className="sticky top-28">
               <LaboratoryTableOfContents
                 activeId={activeId}
                 items={tableOfContents}
                 onNavigate={setActiveId}
+                windowed
               />
             </div>
           </aside>
