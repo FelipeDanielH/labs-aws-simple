@@ -4,7 +4,10 @@ export const contentPaths = {
   root: ROOT,
   documents: `${ROOT}/documents/`,
   taxonomy: `${ROOT}/system/taxonomy.json`,
-  catalog: `${ROOT}/system/public-catalog.json`,
+  catalogs: `${ROOT}/system/public-catalog-`,
+  catalogVersion(generationId: string) {
+    return `${ROOT}/system/public-catalog-${generationId}.json`;
+  },
   documentFolder(slug: string, id: string) {
     return `${ROOT}/documents/${slug}-${id}`;
   },

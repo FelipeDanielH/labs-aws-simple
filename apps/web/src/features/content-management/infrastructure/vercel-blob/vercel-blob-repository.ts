@@ -20,6 +20,7 @@ import type {
   DocumentCleanupResult,
   DocumentManifest,
   DocumentStatus,
+  PublishedDocument,
   PublicCatalog,
   Taxonomy,
   UpdateDocumentInput,
@@ -51,13 +52,20 @@ export class VercelBlobContentRepository
     return match ? this.withMarkdown(match.manifest, match.etag) : null;
   }
 
-  async findPublishedBySlug(slug: string): Promise<VersionedDocument | null> {
-    const manifests = await this.listManifests();
-    const match = manifests.find(
-      (item) =>
-        item.manifest.slug === slug && item.manifest.status === "published",
-    );
-    return match ? this.withMarkdown(match.manifest, match.etag) : null;
+  async findPublishedBySlug(slug: string): Promise<PublishedDocument | null> {
+    const catalog = await this.getPublicCatalog();
+    const entry = catalog.documents.find((document) => document.slug === slug);
+    if (!entry) return null;
+
+    const response = await fetch(entry.markdownUrl, { cache: "no-store" });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new ContentManagementError(
+        "STORAGE_FAILURE",
+        "Vercel Blob no pudo leer el Markdown publicado.",
+      );
+    }
+    return { entry, markdown: await response.text() };
   }
 
   async create(input: CreateDocumentInput): Promise<VersionedDocument> {
@@ -130,21 +138,30 @@ export class VercelBlobContentRepository
       updatedAt: new Date().toISOString(),
     };
 
+    let stored: Awaited<ReturnType<VercelBlobContentRepository["writeJson"]>>;
     try {
-      const stored = await this.writeJson(
+      stored = await this.writeJson(
         contentPaths.manifest(manifest.folder),
         manifest,
         input.expectedEtag,
       );
-      // Public Blob manifests can remain cached briefly after an overwrite.
-      // Keep immutable Markdown generations until purge so a cached manifest
-      // can never become a dangling reference.
-      if (manifest.status === "published") await this.rebuildPublicCatalog();
-      return { manifest, etag: stored.etag, markdown: input.markdown };
     } catch (error) {
       await del(markdownBlob.url).catch(() => undefined);
       this.rethrowStorageError(error);
     }
+
+    // Public Blob manifests can remain cached briefly after an overwrite.
+    // Keep immutable Markdown generations until purge so a cached manifest
+    // can never become a dangling reference. The catalog is projected from
+    // the confirmed write instead of reading that mutable manifest again.
+    if (manifest.status === "published") {
+      try {
+        await this.syncPublicCatalog(manifest);
+      } catch (error) {
+        this.rethrowStorageError(error);
+      }
+    }
+    return { manifest, etag: stored.etag, markdown: input.markdown };
   }
 
   async transition(
@@ -166,17 +183,22 @@ export class VercelBlobContentRepository
           : current.manifest.publishedAt,
       deletedAt: status === "trashed" ? now : null,
     };
+    let stored: Awaited<ReturnType<VercelBlobContentRepository["writeJson"]>>;
     try {
-      const stored = await this.writeJson(
+      stored = await this.writeJson(
         contentPaths.manifest(manifest.folder),
         manifest,
         expectedEtag,
       );
-      await this.rebuildPublicCatalog();
-      return { manifest, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
     }
+    try {
+      await this.syncPublicCatalog(manifest);
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
+    return { manifest, etag: stored.etag };
   }
 
   async purge(id: string): Promise<void> {
@@ -189,7 +211,7 @@ export class VercelBlobContentRepository
     }
     const blobs = await this.listAll(current.manifest.folder + "/");
     if (blobs.length) await del(blobs.map((blob) => blob.url));
-    await this.rebuildPublicCatalog();
+    await this.syncPublicCatalog(current.manifest);
   }
 
   async cleanupVersions(
@@ -260,27 +282,79 @@ export class VercelBlobContentRepository
 
   async getPublicCatalog(): Promise<PublicCatalog> {
     this.assertConfigured();
-    const stored = await this.readJson<PublicCatalog>(contentPaths.catalog);
-    return stored?.value ?? emptyCatalog();
+    const versions = await this.listAll(contentPaths.catalogs);
+    const latest = versions
+      .filter(
+        (blob) =>
+          blob.pathname.startsWith(contentPaths.catalogs) &&
+          blob.pathname.endsWith(".json"),
+      )
+      .sort(
+        (left, right) =>
+          right.uploadedAt.getTime() - left.uploadedAt.getTime() ||
+          right.pathname.localeCompare(left.pathname),
+      )[0];
+
+    if (latest) {
+      const stored = await this.readJson<PublicCatalog>(latest.pathname, {
+        pathname: latest.pathname,
+        url: latest.url,
+        etag: latest.etag,
+      });
+      if (stored) return stored.value;
+    }
+
+    // Migrate installations that only have the former mutable catalog. A
+    // manifest scan is preferable to copying that file because it may already
+    // contain a stale projection produced immediately after a publication.
+    return this.rebuildPublicCatalog();
   }
 
   async rebuildPublicCatalog(): Promise<PublicCatalog> {
     const manifests = await this.listManifests();
-    const documents = manifests
-      .map((item) => item.manifest)
-      .filter((manifest) => manifest.status === "published")
-      .map(toCatalogEntry)
-      .sort((left, right) => {
-        const order = (left.metadata.order ?? 0) - (right.metadata.order ?? 0);
-        return order || left.metadata.title.localeCompare(right.metadata.title);
-      });
+    const documents = sortCatalogEntries(
+      manifests
+        .map((item) => item.manifest)
+        .filter((manifest) => manifest.status === "published")
+        .map(toCatalogEntry),
+    );
     const catalog: PublicCatalog = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       documents,
     };
-    await this.writeJson(contentPaths.catalog, catalog, undefined, true);
+    await this.writeCatalogVersion(catalog);
     return catalog;
+  }
+
+  private async syncPublicCatalog(
+    manifest: DocumentManifest,
+  ): Promise<PublicCatalog> {
+    const current = await this.getPublicCatalog();
+    const documents = current.documents.filter(
+      (document) => document.id !== manifest.id,
+    );
+    if (manifest.status === "published") {
+      documents.push(toCatalogEntry(manifest));
+    }
+
+    const catalog: PublicCatalog = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      documents: sortCatalogEntries(documents),
+    };
+    await this.writeCatalogVersion(catalog);
+    return catalog;
+  }
+
+  private async writeCatalogVersion(catalog: PublicCatalog): Promise<void> {
+    await this.writeJson(
+      contentPaths.catalogVersion(`${Date.now()}-${createShortId()}`),
+      catalog,
+      undefined,
+      false,
+      31_536_000,
+    );
   }
 
   async get(): Promise<VersionedTaxonomy> {
@@ -413,11 +487,12 @@ export class VercelBlobContentRepository
     value: unknown,
     ifMatch?: string,
     allowOverwrite = false,
+    cacheControlMaxAge = 60,
   ) {
     const stored = await put(pathname, JSON.stringify(value), {
       access: "public",
       contentType: "application/json; charset=utf-8",
-      cacheControlMaxAge: 60,
+      cacheControlMaxAge,
       ifMatch: ifMatch ? normalizeBlobEtag(ifMatch) : undefined,
       allowOverwrite: allowOverwrite || Boolean(ifMatch),
     });
@@ -469,12 +544,11 @@ function toCatalogEntry(manifest: DocumentManifest): CatalogEntry {
   };
 }
 
-function emptyCatalog(): PublicCatalog {
-  return {
-    schemaVersion: 1,
-    generatedAt: new Date(0).toISOString(),
-    documents: [],
-  };
+function sortCatalogEntries(documents: CatalogEntry[]): CatalogEntry[] {
+  return documents.sort((left, right) => {
+    const order = (left.metadata.order ?? 0) - (right.metadata.order ?? 0);
+    return order || left.metadata.title.localeCompare(right.metadata.title);
+  });
 }
 
 function emptyTaxonomy(): Taxonomy {

@@ -98,6 +98,33 @@ describe("VercelBlobContentRepository", () => {
     expect(blobMocks.head).not.toHaveBeenCalledWith(markdownPath);
   });
 
+  it("proyecta una publicación confirmada sin releer su estado desde la CDN", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    await repository.transition(
+      "document-1",
+      "published",
+      "current-manifest-etag",
+    );
+
+    const catalogWrites = blobMocks.put.mock.calls.filter(([pathname]) =>
+      String(pathname).startsWith("aws-labs/v1/system/public-catalog-"),
+    );
+    const latestCatalog = JSON.parse(String(catalogWrites.at(-1)?.[1])) as {
+      documents: Array<{ id: string }>;
+    };
+
+    expect(latestCatalog.documents).toEqual([
+      expect.objectContaining({ id: "document-1" }),
+    ]);
+    expect(catalogWrites.at(-1)?.[2]).toEqual(
+      expect.objectContaining({
+        allowOverwrite: false,
+        cacheControlMaxAge: 31_536_000,
+      }),
+    );
+  });
+
   it("conserva la generación Markdown anterior hasta la purga", async () => {
     const repository = new VercelBlobContentRepository();
 

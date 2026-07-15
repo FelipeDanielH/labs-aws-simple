@@ -68,6 +68,11 @@ export type PublicCatalog = {
   documents: CatalogEntry[];
 };
 
+export type PublishedDocument = {
+  entry: CatalogEntry;
+  markdown: string;
+};
+
 export type Subcategory = { id: string; slug: string; name: string };
 export type Category = {
   id: string;

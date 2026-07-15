@@ -15,8 +15,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .catch(() => null);
   return document
     ? {
-        title: `${document.manifest.metadata.title} | AWS Labs`,
-        description: document.manifest.metadata.summary,
+        title: `${document.entry.metadata.title} | AWS Labs`,
+        description: document.entry.metadata.summary,
       }
     : { title: "Laboratorio no encontrado | AWS Labs" };
 }
@@ -32,7 +32,7 @@ export default async function LaboratoryDetailPage({ params }: Props) {
       <article className="rounded-2xl border bg-card p-6 sm:p-10">
         <MarkdownRenderer
           source={document.markdown}
-          baseUrl={document.manifest.markdownUrl}
+          baseUrl={document.entry.markdownUrl}
         />
       </article>
     </main>
