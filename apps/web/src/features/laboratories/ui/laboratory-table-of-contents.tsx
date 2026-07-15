@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { MarkdownTableOfContentsItem } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
 
@@ -73,61 +73,73 @@ export function LaboratoryTableOfContents({
   const listRef = useRef<HTMLUListElement>(null);
   const itemRefs = useRef(new Map<string, HTMLLIElement>());
   const [windowState, setWindowState] = useState({
-    offset: 0,
     hasPrevious: false,
     hasNext: false,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!windowed) return;
 
     const viewport = viewportRef.current;
     const list = listRef.current;
     if (!viewport || !list) return;
 
-    const updateWindow = () => {
-      const activeItem = activeId ? itemRefs.current.get(activeId) : null;
-      const viewportHeight = viewport.clientHeight;
-      if (!activeItem || !viewportHeight) return;
-
-      const activeBottom = activeItem.offsetTop + activeItem.offsetHeight;
-      const maxOffset = Math.max(0, list.scrollHeight - viewportHeight);
-      const offset = Math.min(
-        Math.max(0, activeBottom - viewportHeight + 12),
-        maxOffset,
+    const updateIndicators = () => {
+      const maxScrollTop = Math.max(
+        0,
+        viewport.scrollHeight - viewport.clientHeight,
       );
       const nextState = {
-        offset,
-        hasPrevious: offset > 1,
-        hasNext: maxOffset - offset > 1,
+        hasPrevious: viewport.scrollTop > 1,
+        hasNext: maxScrollTop - viewport.scrollTop > 1,
       };
 
       setWindowState((current) =>
-        current.offset === nextState.offset &&
         current.hasPrevious === nextState.hasPrevious &&
         current.hasNext === nextState.hasNext
           ? current
           : nextState,
       );
     };
-    const resizeObserver = new ResizeObserver(updateWindow);
+    const keepActiveItemVisible = () => {
+      const activeItem = activeId ? itemRefs.current.get(activeId) : null;
+      const viewportHeight = viewport.clientHeight;
+      if (!activeItem || !viewportHeight) return;
+
+      const activeBottom = activeItem.offsetTop + activeItem.offsetHeight;
+      const maxScrollTop = Math.max(0, list.scrollHeight - viewportHeight);
+      const scrollTop = Math.min(
+        Math.max(0, activeBottom - viewportHeight + 12),
+        maxScrollTop,
+      );
+
+      viewport.scrollTo({
+        top: scrollTop,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+      updateIndicators();
+    };
+    const handleResize = () => {
+      keepActiveItemVisible();
+      updateIndicators();
+    };
+    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(viewport);
     resizeObserver.observe(list);
-    updateWindow();
+    viewport.addEventListener("scroll", updateIndicators, { passive: true });
+    keepActiveItemVisible();
+    updateIndicators();
 
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      viewport.removeEventListener("scroll", updateIndicators);
+    };
   }, [activeId, items, windowed]);
 
   const list = (
-    <ul
-      ref={listRef}
-      className="relative border-l transition-transform duration-200 ease-out motion-reduce:transition-none"
-      style={
-        windowed
-          ? { transform: `translateY(-${windowState.offset}px)` }
-          : undefined
-      }
-    >
+    <ul ref={listRef} className="relative border-l">
       {items.map((item) => {
         const isActive = item.id === activeId;
 
@@ -165,7 +177,8 @@ export function LaboratoryTableOfContents({
       {windowed ? (
         <div
           ref={viewportRef}
-          className="relative mt-3 h-[calc(100vh-12rem)] min-h-64 overflow-hidden"
+          tabIndex={0}
+          className="relative mt-3 h-[calc(100vh-12rem)] min-h-64 overflow-y-auto [scrollbar-width:none] outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-scrollbar]:hidden"
         >
           {list}
           <div

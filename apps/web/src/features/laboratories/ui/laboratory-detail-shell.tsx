@@ -39,8 +39,8 @@ export function LaboratoryDetailShell({
   const hasTableOfContents = tableOfContents.length > 0;
   const gridClassName = hasTableOfContents
     ? isSidebarOpen
-      ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_16rem]"
-      : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)] xl:grid-cols-[4.5rem_minmax(0,1fr)_16rem]"
+      ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[18rem_minmax(0,1fr)_26rem]"
+      : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)] xl:grid-cols-[4.5rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[4.5rem_minmax(0,1fr)_26rem]"
     : isSidebarOpen
       ? "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[18rem_minmax(0,1fr)]"
       : "grid transition-[grid-template-columns] duration-200 lg:grid-cols-[4.5rem_minmax(0,1fr)]";
