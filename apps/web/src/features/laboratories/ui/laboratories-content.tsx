@@ -1,8 +1,15 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, FlaskConical, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FlaskConical,
+  Search,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useDeferredValue, useState } from "react";
 
 import type {
   CatalogEntry,
@@ -25,6 +32,9 @@ export function LaboratoriesContent({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const normalizedSearchQuery = normalizeSearchValue(deferredSearchQuery);
   const categoryParam = searchParams.get("categoria");
   const subcategoryParam = searchParams.get("subcategoria");
   const category = taxonomy.categories.find(
@@ -38,7 +48,11 @@ export function LaboratoriesContent({
   const filteredDocuments = documents.filter(
     (document) =>
       (!categoryId || document.categoryId === categoryId) &&
-      (!subcategoryId || document.subcategoryId === subcategoryId),
+      (!subcategoryId || document.subcategoryId === subcategoryId) &&
+      (!normalizedSearchQuery ||
+        normalizeSearchValue(document.metadata.title).includes(
+          normalizedSearchQuery,
+        )),
   );
   const pageSizeValue = Number(searchParams.get("porPagina"));
   const pageSize = PAGE_SIZE_OPTIONS.includes(
@@ -158,7 +172,7 @@ export function LaboratoriesContent({
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="text-xl font-semibold">
                   {category?.name ?? "Todos los laboratorios"}{" "}
-                  <span className="text-muted-foreground">
+                  <span aria-live="polite" className="text-muted-foreground">
                     ({filteredDocuments.length})
                   </span>
                 </h2>
@@ -180,10 +194,28 @@ export function LaboratoriesContent({
                   />
                   <input
                     type="search"
-                    readOnly
-                    placeholder="Buscar laboratorios"
-                    className="h-10 w-full rounded-lg border bg-background pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      resetCurrentPage();
+                    }}
+                    autoComplete="off"
+                    placeholder="Buscar por nombre"
+                    className="h-10 w-full rounded-lg border bg-background pr-10 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   />
+                  {searchQuery ? (
+                    <button
+                      type="button"
+                      aria-label="Limpiar búsqueda"
+                      onClick={() => {
+                        setSearchQuery("");
+                        resetCurrentPage();
+                      }}
+                      className="absolute top-1/2 right-2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <X aria-hidden="true" className="size-4" />
+                    </button>
+                  ) : null}
                 </label>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
@@ -291,9 +323,15 @@ export function LaboratoriesContent({
                   aria-hidden="true"
                   className="mb-4 size-9 text-primary"
                 />
-                <h2 className="text-lg font-semibold">{copy.emptyTitle}</h2>
+                <h2 className="text-lg font-semibold">
+                  {normalizedSearchQuery
+                    ? "No encontramos laboratorios"
+                    : copy.emptyTitle}
+                </h2>
                 <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-                  {copy.emptyDescription}
+                  {normalizedSearchQuery
+                    ? `No hay laboratorios cuyo nombre coincida con “${deferredSearchQuery.trim()}”.`
+                    : copy.emptyDescription}
                 </p>
               </div>
             )}
@@ -325,6 +363,12 @@ export function LaboratoriesContent({
 
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname);
+  }
+
+  function resetCurrentPage() {
+    if (searchParams.has("pagina")) {
+      replaceQuery({ pagina: undefined });
+    }
   }
 }
 
@@ -404,4 +448,12 @@ function categoryName(taxonomy: Taxonomy, id: string | null) {
     taxonomy.categories.find((category) => category.id === id)?.name ??
     "Laboratorio"
   );
+}
+
+function normalizeSearchValue(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .toLocaleLowerCase("es")
+    .trim();
 }
