@@ -7,6 +7,8 @@ import { useState } from "react";
 
 import { PreferencesProvider } from "@/shared/providers/preferences-provider";
 import { ThemeProvider } from "@/shared/providers/theme-provider";
+import { CustomCursor } from "@/shared/ui/global-interactions/custom-cursor";
+import { InterfaceAudioFeedback } from "@/shared/ui/global-interactions/interface-audio-feedback";
 
 export function AppProviders({ children }: Readonly<{ children: ReactNode }>) {
   const [queryClient] = useState(
@@ -26,6 +28,8 @@ export function AppProviders({ children }: Readonly<{ children: ReactNode }>) {
       <PreferencesProvider>
         <QueryClientProvider client={queryClient}>
           {children}
+          <CustomCursor />
+          <InterfaceAudioFeedback />
           {process.env.NODE_ENV === "development" ? (
             <ReactQueryDevtools />
           ) : null}

@@ -1,6 +1,100 @@
 @import "@workspace/ui/globals.css";
 
+@media (pointer: fine) {
+  html[data-custom-cursor="true"],
+  html[data-custom-cursor="true"] body,
+  html[data-custom-cursor="true"] a,
+  html[data-custom-cursor="true"] button,
+  html[data-custom-cursor="true"] summary,
+  html[data-custom-cursor="true"] [role="button"],
+  html[data-custom-cursor="true"] [role="link"] {
+    cursor: none !important;
+  }
+
+  html[data-custom-cursor="true"] input,
+  html[data-custom-cursor="true"] textarea,
+  html[data-custom-cursor="true"] select,
+  html[data-custom-cursor="true"] [contenteditable="true"],
+  html[data-custom-cursor="true"] [data-native-cursor] {
+    cursor: auto !important;
+  }
+}
+
 @layer components {
+  .custom-cursor-layer {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .custom-cursor-position {
+    position: fixed;
+    top: 0;
+    left: 0;
+    display: grid;
+    place-items: center;
+    will-change: transform;
+  }
+
+  .custom-cursor-ring {
+    position: absolute;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid color-mix(in oklab, var(--primary) 72%, transparent);
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--primary) 8%, transparent);
+    box-shadow: 0 0 1.25rem
+      color-mix(in oklab, var(--primary) 22%, transparent);
+    transform: translate(-50%, -50%) scale(1);
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  .custom-cursor-dot {
+    position: absolute;
+    width: 0.35rem;
+    height: 0.35rem;
+    border-radius: 9999px;
+    background: var(--primary);
+    box-shadow: 0 0 0.7rem
+      color-mix(in oklab, var(--primary) 70%, transparent);
+    transform: translate(-50%, -50%);
+  }
+
+  .custom-cursor-layer[data-visible="true"] {
+    opacity: 1;
+  }
+
+  .custom-cursor-layer[data-interactive="true"] .custom-cursor-ring {
+    border-color: color-mix(in oklab, var(--primary) 90%, transparent);
+    background: color-mix(in oklab, var(--primary) 18%, transparent);
+    transform: translate(-50%, -50%) scale(1.38);
+  }
+
+  .custom-cursor-layer[data-pressed="true"] .custom-cursor-ring {
+    background: color-mix(in oklab, var(--primary) 28%, transparent);
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+
+  @media (pointer: fine) {
+    .custom-cursor-layer {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .custom-cursor-layer,
+    .custom-cursor-ring {
+      transition-duration: 0ms;
+    }
+  }
+
   .spline-hero-scene > div {
     position: absolute !important;
     top: -5% !important;
