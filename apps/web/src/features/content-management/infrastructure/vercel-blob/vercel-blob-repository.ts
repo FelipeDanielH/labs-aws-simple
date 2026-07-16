@@ -29,6 +29,10 @@ import type {
   VersionedTaxonomy,
 } from "../../domain/models";
 import { normalizeBlobEtag, versionedBlobUrl } from "./blob-etag";
+import {
+  normalizeDocumentManifest,
+  normalizePublicCatalog,
+} from "./content-normalization";
 
 interface LocatedBlob {
   pathname: string;
@@ -49,7 +53,7 @@ export class VercelBlobContentRepository
 
   async findById(id: string): Promise<VersionedDocument | null> {
     const match = await this.findManifestById(id);
-    return match ? this.withMarkdown(match.manifest, match.etag) : null;
+    return match ? this.withContent(match.manifest, match.etag) : null;
   }
 
   async findPublishedBySlug(slug: string): Promise<PublishedDocument | null> {
@@ -57,32 +61,36 @@ export class VercelBlobContentRepository
     const entry = catalog.documents.find((document) => document.slug === slug);
     if (!entry) return null;
 
-    const response = await fetch(entry.markdownUrl, { cache: "no-store" });
+    const response = await fetch(entry.content.url, { cache: "no-store" });
     if (response.status === 404) return null;
     if (!response.ok) {
       throw new ContentManagementError(
         "STORAGE_FAILURE",
-        "Vercel Blob no pudo leer el Markdown publicado.",
+        "Vercel Blob no pudo leer el contenido publicado.",
       );
     }
-    return { entry, markdown: await response.text() };
+    return { entry, source: await response.text() };
   }
 
   async create(input: CreateDocumentInput): Promise<VersionedDocument> {
     this.assertConfigured();
     const now = new Date().toISOString();
-    const markdownPathname = contentPaths.markdown(
+    const contentPathname = contentPaths.content(
       input.folder,
       createShortId(),
+      input.contentKind,
     );
-    const markdownBlob = await put(markdownPathname, input.markdown, {
+    const contentBlob = await put(contentPathname, input.source, {
       access: "public",
-      contentType: "text/markdown; charset=utf-8",
+      contentType:
+        input.contentKind === "html"
+          ? "text/html; charset=utf-8"
+          : "text/markdown; charset=utf-8",
       cacheControlMaxAge: 60,
     });
 
     const manifest: DocumentManifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: input.id,
       slug: input.slug,
       folder: input.folder,
@@ -91,8 +99,15 @@ export class VercelBlobContentRepository
       metadata: input.metadata,
       categoryId: input.categoryId,
       subcategoryId: input.subcategoryId,
-      markdownPathname,
-      markdownUrl: markdownBlob.url,
+      content: {
+        kind: input.contentKind,
+        pathname: contentPathname,
+        url: contentBlob.url,
+        assetBaseUrl:
+          input.contentKind === "html"
+            ? new URL(`/${input.folder}/assets/`, contentBlob.url).href
+            : null,
+      },
       assets: input.assets.map((asset) => ({ ...asset, id: createShortId() })),
       createdAt: now,
       updatedAt: now,
@@ -105,9 +120,9 @@ export class VercelBlobContentRepository
         contentPaths.manifest(input.folder),
         manifest,
       );
-      return { manifest, etag: stored.etag, markdown: input.markdown };
+      return { manifest, etag: stored.etag, source: input.source };
     } catch (error) {
-      await del(markdownBlob.url).catch(() => undefined);
+      await del(contentBlob.url).catch(() => undefined);
       throw error;
     }
   }
@@ -119,13 +134,17 @@ export class VercelBlobContentRepository
     const current = await this.requireManifest(id);
     if (current.etag !== input.expectedEtag) this.throwConflict();
 
-    const markdownPathname = contentPaths.markdown(
+    const contentPathname = contentPaths.content(
       current.manifest.folder,
       createShortId(),
+      current.manifest.content.kind,
     );
-    const markdownBlob = await put(markdownPathname, input.markdown, {
+    const contentBlob = await put(contentPathname, input.source, {
       access: "public",
-      contentType: "text/markdown; charset=utf-8",
+      contentType:
+        current.manifest.content.kind === "html"
+          ? "text/html; charset=utf-8"
+          : "text/markdown; charset=utf-8",
       cacheControlMaxAge: 60,
     });
     const manifest: DocumentManifest = {
@@ -133,8 +152,11 @@ export class VercelBlobContentRepository
       metadata: input.metadata,
       categoryId: input.categoryId,
       subcategoryId: input.subcategoryId,
-      markdownPathname,
-      markdownUrl: markdownBlob.url,
+      content: {
+        ...current.manifest.content,
+        pathname: contentPathname,
+        url: contentBlob.url,
+      },
       updatedAt: new Date().toISOString(),
     };
 
@@ -146,7 +168,7 @@ export class VercelBlobContentRepository
         input.expectedEtag,
       );
     } catch (error) {
-      await del(markdownBlob.url).catch(() => undefined);
+      await del(contentBlob.url).catch(() => undefined);
       this.rethrowStorageError(error);
     }
 
@@ -161,7 +183,7 @@ export class VercelBlobContentRepository
         this.rethrowStorageError(error);
       }
     }
-    return { manifest, etag: stored.etag, markdown: input.markdown };
+    return { manifest, etag: stored.etag, source: input.source };
   }
 
   async transition(
@@ -238,25 +260,25 @@ export class VercelBlobContentRepository
     }
 
     const blobs = await this.listAll(`${current.manifest.folder}/`);
-    const markdownBlobs = blobs
+    const contentBlobs = blobs
       .filter((blob) =>
         new RegExp(
-          `^${escapeRegExp(current.manifest.folder)}/document-[^/]+\\.md$`,
+          `^${escapeRegExp(current.manifest.folder)}/document-[^/]+\\.${current.manifest.content.kind === "html" ? "html" : "md"}$`,
         ).test(blob.pathname),
       )
       .sort(
         (left, right) => right.uploadedAt.getTime() - left.uploadedAt.getTime(),
       );
-    const previous = markdownBlobs.find(
-      (blob) => blob.pathname !== current.manifest.markdownPathname,
+    const previous = contentBlobs.find(
+      (blob) => blob.pathname !== current.manifest.content.pathname,
     );
     const retainedPathnames = new Set(
-      [current.manifest.markdownPathname, previous?.pathname].filter(
+      [current.manifest.content.pathname, previous?.pathname].filter(
         (pathname): pathname is string => Boolean(pathname),
       ),
     );
     const lastUpdatedAt = new Date(current.manifest.updatedAt).getTime();
-    const candidates = markdownBlobs.filter(
+    const candidates = contentBlobs.filter(
       (blob) =>
         !retainedPathnames.has(blob.pathname) &&
         blob.uploadedAt.getTime() <= lastUpdatedAt,
@@ -276,7 +298,7 @@ export class VercelBlobContentRepository
     return {
       deletedFiles: candidates.length,
       deletedBytes: candidates.reduce((total, blob) => total + blob.size, 0),
-      retainedFiles: markdownBlobs.length - candidates.length,
+      retainedFiles: contentBlobs.length - candidates.length,
     };
   }
 
@@ -301,7 +323,7 @@ export class VercelBlobContentRepository
         url: latest.url,
         etag: latest.etag,
       });
-      if (stored) return stored.value;
+      if (stored) return normalizePublicCatalog(stored.value);
     }
 
     // Migrate installations that only have the former mutable catalog. A
@@ -319,7 +341,7 @@ export class VercelBlobContentRepository
         .map(toCatalogEntry),
     );
     const catalog: PublicCatalog = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       documents,
     };
@@ -339,7 +361,7 @@ export class VercelBlobContentRepository
     }
 
     const catalog: PublicCatalog = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       documents: sortCatalogEntries(documents),
     };
@@ -399,18 +421,18 @@ export class VercelBlobContentRepository
     return manifest;
   }
 
-  private async withMarkdown(
+  private async withContent(
     manifest: DocumentManifest,
     etag: string,
   ): Promise<VersionedDocument> {
-    const stored = await this.readText(manifest.markdownPathname);
+    const stored = await this.readText(manifest.content.pathname);
     if (!stored) {
       throw new ContentManagementError(
         "STORAGE_FAILURE",
-        "El manifiesto apunta a un Markdown inexistente.",
+        "El manifiesto apunta a un contenido inexistente.",
       );
     }
-    return { manifest, etag, markdown: stored.value };
+    return { manifest, etag, source: stored.value };
   }
 
   private async listManifests(): Promise<
@@ -426,12 +448,15 @@ export class VercelBlobContentRepository
         // list() discovers stable manifest pathnames, but its metadata can lag
         // behind an overwrite. readJson() performs head() so the content and
         // ETag always come from the current authoritative version.
-        return this.readJson<DocumentManifest>(blob.pathname);
+        return this.readJson<unknown>(blob.pathname);
       }),
     );
     return results
       .filter((item): item is NonNullable<typeof item> => item !== null)
-      .map((item) => ({ manifest: item.value, etag: item.etag }));
+      .map((item) => ({
+        manifest: normalizeDocumentManifest(item.value),
+        etag: item.etag,
+      }));
   }
 
   private async listAll(prefix: string) {
@@ -538,7 +563,7 @@ function toCatalogEntry(manifest: DocumentManifest): CatalogEntry {
     metadata: manifest.metadata,
     categoryId: manifest.categoryId,
     subcategoryId: manifest.subcategoryId,
-    markdownUrl: manifest.markdownUrl,
+    content: manifest.content,
     updatedAt: manifest.updatedAt,
     publishedAt: manifest.publishedAt,
   };

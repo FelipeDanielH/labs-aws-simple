@@ -12,6 +12,17 @@ const ALLOWED_IMAGES = [
   "image/gif",
   "image/webp",
   "image/svg+xml",
+  "image/avif",
+];
+const ALLOWED_HTML_ASSETS = [
+  ...ALLOWED_IMAGES,
+  "text/css",
+  "font/woff",
+  "font/woff2",
+  "font/ttf",
+  "font/otf",
+  "application/font-woff",
+  "application/font-sfnt",
 ];
 
 export async function POST(request: Request) {
@@ -24,11 +35,13 @@ export async function POST(request: Request) {
         await requireAdminSession();
         const intent = await verifyImportIntent(clientPayload ?? "");
         assertSafeBlobPath(pathname);
-        if (!pathname.startsWith(`${intent.folder}/images/`)) {
-          throw new Error("La imagen no pertenece al documento reservado.");
+        if (!intent.allowedPathnames.includes(pathname)) {
+          throw new Error("El recurso no pertenece al documento reservado.");
         }
         return {
-          allowedContentTypes: ALLOWED_IMAGES,
+          allowedContentTypes:
+            intent.kind === "html" ? ALLOWED_HTML_ASSETS : ALLOWED_IMAGES,
+          maximumSizeInBytes: 25 * 1024 * 1024,
           addRandomSuffix: false,
           allowOverwrite: false,
           tokenPayload: JSON.stringify({ documentId: intent.id }),

@@ -3,18 +3,28 @@ import { describe, expect, it } from "vitest";
 import {
   assertSafeBlobPath,
   contentPaths,
+  normalizeRelativeAssetPath,
+  resolveRelativeAssetPath,
   slugify,
 } from "./application/document-paths";
 import { cleanupRemainingMinutes } from "./application/document-retention";
+import { assertAssetSignature } from "./application/asset-validation";
+import { processHtmlContent } from "./application/html-content";
+import { assertSafeMarkdownUrls } from "./application/markdown-content";
 import {
   metadataSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
 import { convertDocxHtmlToMarkdown } from "./infrastructure/browser/mammoth-docx-converter";
 import {
+  prepareHtmlContent,
+  prepareMarkdownContent,
+} from "./infrastructure/browser/direct-content-converter";
+import {
   normalizeBlobEtag,
   versionedBlobUrl,
 } from "./infrastructure/vercel-blob/blob-etag";
+import { normalizeDocumentManifest } from "./infrastructure/vercel-blob/content-normalization";
 import { assertTaxonomySelection } from "./server/taxonomy-selection";
 
 describe("content management contracts", () => {
@@ -32,6 +42,136 @@ describe("content management contracts", () => {
     ).not.toThrow();
     expect(() => assertSafeBlobPath("../secrets.txt")).toThrow();
     expect(() => assertSafeBlobPath("aws-labs/v1/../secrets.txt")).toThrow();
+  });
+
+  it("normaliza rutas relativas y rechaza traversal", () => {
+    expect(normalizeRelativeAssetPath("img/Diagrama final.png")).toBe(
+      "img/Diagrama final.png",
+    );
+    expect(() => normalizeRelativeAssetPath("../secreto.txt")).toThrow();
+    expect(
+      resolveRelativeAssetPath("styles/theme/main.css", "../fonts/inter.woff2"),
+    ).toBe("styles/fonts/inter.woff2");
+    expect(() =>
+      resolveRelativeAssetPath("main.css", "../fuera.png"),
+    ).toThrow();
+  });
+
+  it("sanea HTML activo y conserva recursos estáticos", () => {
+    const result =
+      processHtmlContent(`<!doctype html><html><head><title>Lab</title></head><body>
+      <script>alert(1)</script><img src="img/diagrama.png" onerror="alert(1)">
+      <a href="javascript:alert(1)">peligro</a><form action="https://example.com"><button>Enviar</button></form>
+    </body></html>`);
+    expect(result.title).toBe("Lab");
+    expect(result.html).not.toContain("<script");
+    expect(result.html).not.toContain("onerror");
+    expect(result.html).not.toContain("javascript:");
+    expect(result.html).not.toContain("<form");
+    expect(result.localReferences).toEqual(["img/diagrama.png"]);
+  });
+
+  it("bloquea traversal y protocolos inseguros dentro de CSS", () => {
+    expect(() => processHtmlContent('<img src="../../secreto.png">')).toThrow();
+    expect(() =>
+      processHtmlContent(
+        "<style>body{background:url(http://example.com/a.png)}</style>",
+      ),
+    ).toThrow();
+  });
+
+  it("rechaza recursos cuyo contenido no coincide con el MIME", () => {
+    expect(() =>
+      assertAssetSignature(
+        new TextEncoder().encode("no es una imagen"),
+        "image/png",
+        "falsa.png",
+      ),
+    ).toThrow();
+  });
+
+  it("acepta enlaces HTTPS y rechaza protocolos peligrosos en Markdown", () => {
+    expect(() =>
+      assertSafeMarkdownUrls("[AWS](https://aws.amazon.com)"),
+    ).not.toThrow();
+    expect(() =>
+      assertSafeMarkdownUrls("[malicioso](javascript:alert(1))"),
+    ).toThrow();
+    expect(() =>
+      assertSafeMarkdownUrls("[inseguro](http://example.com)"),
+    ).toThrow();
+  });
+
+  it("normaliza manifiestos Markdown v1 sin migración destructiva", () => {
+    const normalized = normalizeDocumentManifest({
+      schemaVersion: 1,
+      id: "legacy",
+      slug: "legacy",
+      folder: "aws-labs/v1/documents/legacy-id",
+      originalFileName: "legacy.docx",
+      status: "published",
+      metadata: {
+        title: "Legacy",
+        summary: "",
+        author: "",
+        tags: [],
+        order: null,
+        extra: {},
+      },
+      categoryId: null,
+      subcategoryId: null,
+      markdownPathname: "aws-labs/v1/documents/legacy-id/document-old.md",
+      markdownUrl:
+        "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/legacy-id/document-old.md",
+      assets: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      deletedAt: null,
+    });
+    expect(normalized.schemaVersion).toBe(2);
+    expect(normalized.content.kind).toBe("markdown");
+    expect(normalized.content.pathname).toContain("document-old.md");
+  });
+
+  it("importa frontmatter Markdown, retira YAML y reescribe imágenes", async () => {
+    const image = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+      "diagrama.png",
+      { type: "image/png" },
+    );
+    const result = await prepareMarkdownContent(
+      "---\ntitle: Laboratorio VPC\nauthor: Felipe\ndificultad: intermedio\n---\n\n![Diagrama](diagrama.png)",
+      "laboratorio.md",
+      [image],
+    );
+    expect(result.source).not.toContain("---");
+    expect(result.source).toContain("./assets/diagrama.png");
+    expect(result.metadata).toMatchObject({
+      title: "Laboratorio VPC",
+      author: "Felipe",
+      extra: { dificultad: "intermedio" },
+    });
+  });
+
+  it("valida dependencias CSS anidadas de HTML", async () => {
+    const css = assetFile(
+      "styles/site.css",
+      "body{background:url(../images/fondo.png)}",
+      "text/css",
+    );
+    const image = assetFile(
+      "images/fondo.png",
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      "image/png",
+    );
+    const result = await prepareHtmlContent(
+      '<html><head><title>HTML Lab</title><link rel="stylesheet" href="styles/site.css"></head><body></body></html>',
+      "lab.html",
+      [css, image],
+    );
+    expect(result.title).toBe("HTML Lab");
+    expect(result.assets).toHaveLength(2);
   });
 
   it("valida metadata estructurada y extensible", () => {
@@ -121,3 +261,22 @@ describe("content management contracts", () => {
     expect(markdown).toContain('<td colspan="2">Celda combinada</td>');
   });
 });
+
+function assetFile(
+  relativePath: string,
+  content: string | Uint8Array,
+  type: string,
+): File {
+  const body =
+    typeof content === "string"
+      ? content
+      : (content.buffer.slice(
+          content.byteOffset,
+          content.byteOffset + content.byteLength,
+        ) as ArrayBuffer);
+  const file = new File([body], relativePath.split("/").at(-1) ?? "asset", {
+    type,
+  });
+  Object.defineProperty(file, "__relativeAssetPath", { value: relativePath });
+  return file;
+}

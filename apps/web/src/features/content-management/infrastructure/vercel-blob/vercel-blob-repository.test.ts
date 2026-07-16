@@ -77,7 +77,7 @@ describe("VercelBlobContentRepository", () => {
     const document = await repository.findById("document-1");
 
     expect(document?.manifest.metadata.title).toBe("Título vigente");
-    expect(document?.markdown).toBe("# Markdown vigente");
+    expect(document?.source).toBe("# Markdown vigente");
     expect(blobMocks.head).toHaveBeenCalledWith(manifestPath);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("manifest.json?v=current-manifest-etag"),
@@ -129,7 +129,7 @@ describe("VercelBlobContentRepository", () => {
     const repository = new VercelBlobContentRepository();
 
     await repository.update("document-1", {
-      markdown: "# Segunda generación",
+      source: "# Segunda generación",
       metadata: createManifest().metadata,
       categoryId: null,
       subcategoryId: null,
@@ -199,7 +199,7 @@ describe("VercelBlobContentRepository", () => {
 function createManifest(): DocumentManifest {
   const now = new Date().toISOString();
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: "document-1",
     slug: "laboratorio",
     folder: "aws-labs/v1/documents/laboratorio-abc123",
@@ -215,8 +215,12 @@ function createManifest(): DocumentManifest {
     },
     categoryId: null,
     subcategoryId: null,
-    markdownPathname: markdownPath,
-    markdownUrl: `https://store.public.blob.vercel-storage.com/${markdownPath}`,
+    content: {
+      kind: "markdown",
+      pathname: markdownPath,
+      url: `https://store.public.blob.vercel-storage.com/${markdownPath}`,
+      assetBaseUrl: null,
+    },
     assets: [],
     createdAt: now,
     updatedAt: now,

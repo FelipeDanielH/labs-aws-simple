@@ -14,7 +14,7 @@ export default async function LaboratoriesPage() {
   const repository = getContentRepository();
   const [catalog, taxonomy] = await Promise.all([
     repository.getPublicCatalog().catch(() => ({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       generatedAt: new Date(0).toISOString(),
       documents: [],
     })),

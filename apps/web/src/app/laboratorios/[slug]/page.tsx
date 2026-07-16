@@ -29,7 +29,7 @@ export default async function LaboratoryDetailPage({ params }: Props) {
   const [document, catalog, versionedTaxonomy] = await Promise.all([
     repository.findPublishedBySlug(slug).catch(() => null),
     repository.getPublicCatalog().catch(() => ({
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       generatedAt: new Date(0).toISOString(),
       documents: [],
     })),
@@ -76,7 +76,10 @@ export default async function LaboratoryDetailPage({ params }: Props) {
   if (subcategory) backParams.set("subcategoria", subcategory.slug);
   const backQuery = backParams.toString();
   const backHref = backQuery ? `/laboratorios?${backQuery}` : "/laboratorios";
-  const tableOfContents = extractMarkdownTableOfContents(document.markdown);
+  const tableOfContents =
+    entry.content.kind === "markdown"
+      ? extractMarkdownTableOfContents(document.source)
+      : [];
 
   return (
     <LaboratoryDetailShell
@@ -87,10 +90,19 @@ export default async function LaboratoryDetailPage({ params }: Props) {
       laboratories={laboratories}
       tableOfContents={tableOfContents}
     >
-      <MarkdownRenderer
-        source={document.markdown}
-        baseUrl={entry.markdownUrl}
-      />
+      {entry.content.kind === "markdown" ? (
+        <MarkdownRenderer
+          source={document.source}
+          baseUrl={entry.content.url}
+        />
+      ) : (
+        <iframe
+          title={entry.metadata.title}
+          src={`/laboratorios/${entry.slug}/contenido`}
+          sandbox=""
+          className="min-h-[75vh] w-full rounded-xl border bg-white"
+        />
+      )}
     </LaboratoryDetailShell>
   );
 }

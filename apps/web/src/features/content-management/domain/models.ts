@@ -1,4 +1,5 @@
 export type DocumentStatus = "draft" | "published" | "trashed";
+export type DocumentContentKind = "markdown" | "html";
 
 export type MetadataScalar = string | number | boolean;
 export type MetadataValue = MetadataScalar | MetadataScalar[];
@@ -15,6 +16,7 @@ export type DocumentMetadata = {
 export type DocumentAsset = {
   id: string;
   originalName: string;
+  relativePath: string;
   pathname: string;
   url: string;
   contentType: string;
@@ -22,8 +24,15 @@ export type DocumentAsset = {
   sha256: string;
 };
 
+export type DocumentContent = {
+  kind: DocumentContentKind;
+  pathname: string;
+  url: string;
+  assetBaseUrl: string | null;
+};
+
 export type DocumentManifest = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   slug: string;
   folder: string;
@@ -32,8 +41,7 @@ export type DocumentManifest = {
   metadata: DocumentMetadata;
   categoryId: string | null;
   subcategoryId: string | null;
-  markdownPathname: string;
-  markdownUrl: string;
+  content: DocumentContent;
   assets: DocumentAsset[];
   createdAt: string;
   updatedAt: string;
@@ -47,30 +55,31 @@ export type VersionedManifest = {
 };
 
 export type VersionedDocument = VersionedManifest & {
-  markdown: string;
+  source: string;
 };
 
 export type CatalogEntry = Pick<
   DocumentManifest,
   | "id"
   | "slug"
+  | "folder"
   | "metadata"
   | "categoryId"
   | "subcategoryId"
-  | "markdownUrl"
+  | "content"
   | "updatedAt"
   | "publishedAt"
-> & { folder: string };
+>;
 
 export type PublicCatalog = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
   documents: CatalogEntry[];
 };
 
 export type PublishedDocument = {
   entry: CatalogEntry;
-  markdown: string;
+  source: string;
 };
 
 export type Subcategory = { id: string; slug: string; name: string };
@@ -102,7 +111,8 @@ export type CreateDocumentInput = {
   slug: string;
   folder: string;
   originalFileName: string;
-  markdown: string;
+  contentKind: DocumentContentKind;
+  source: string;
   assets: UploadedAssetInput[];
   metadata: DocumentMetadata;
   categoryId: string | null;
@@ -110,7 +120,7 @@ export type CreateDocumentInput = {
 };
 
 export type UpdateDocumentInput = {
-  markdown: string;
+  source: string;
   metadata: DocumentMetadata;
   categoryId: string | null;
   subcategoryId: string | null;

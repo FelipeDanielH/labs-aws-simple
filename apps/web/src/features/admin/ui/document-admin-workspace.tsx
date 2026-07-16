@@ -3,6 +3,10 @@
 import { upload } from "@vercel/blob/client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  injectControlledBase,
+  processHtmlContent,
+} from "@/features/content-management/application/html-content";
 
 import {
   createShortId,
@@ -21,6 +25,12 @@ import type {
   VersionedTaxonomy,
 } from "@/features/content-management/domain/models";
 import { MammothDocxConverter } from "@/features/content-management/infrastructure/browser/mammoth-docx-converter";
+import {
+  companionFiles,
+  prepareHtmlContent,
+  prepareMarkdownContent,
+  type BrowserAsset,
+} from "@/features/content-management/infrastructure/browser/direct-content-converter";
 import { adminRequest } from "@/features/content-management/presentation/admin-api";
 import { MarkdownRenderer } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
 
@@ -109,7 +119,7 @@ export function DocumentAdminWorkspace() {
     if (
       action === "purge" &&
       !window.confirm(
-        "Esta acción elimina definitivamente Markdown e imágenes. ¿Continuar?",
+        "Esta acción elimina definitivamente el contenido y sus recursos. ¿Continuar?",
       )
     )
       return;
@@ -222,7 +232,7 @@ export function DocumentAdminWorkspace() {
           {error}
         </p>
       ) : null}
-      <DocxImportPanel
+      <ContentImportPanel
         taxonomy={taxonomy}
         onCreated={(document) => {
           setDocuments((current) => upsertDocument(current, document));
@@ -264,6 +274,49 @@ export function DocumentAdminWorkspace() {
         />
       ) : null}
     </div>
+  );
+}
+
+function ContentImportPanel(props: {
+  taxonomy: Taxonomy;
+  onCreated: (document: VersionedDocument) => void;
+}) {
+  const [tab, setTab] = useState<"docx" | "markdown" | "html">("docx");
+  return (
+    <section className="space-y-5 rounded-2xl border bg-card p-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Publicar contenido</h2>
+        <p className="text-sm text-muted-foreground">
+          DOCX, HTML o Markdown. Todo contenido nuevo comienza como borrador.
+        </p>
+      </div>
+      <div
+        role="tablist"
+        aria-label="Tipo de contenido"
+        className="flex flex-wrap gap-2"
+      >
+        {(["docx", "markdown", "html"] as const).map((value) => (
+          <button
+            key={value}
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={tab === value ? "button-primary" : "button-secondary"}
+          >
+            {value === "docx"
+              ? "DOCX"
+              : value === "markdown"
+                ? "Markdown"
+                : "HTML"}
+          </button>
+        ))}
+      </div>
+      {tab === "docx" ? <DocxImportPanel {...props} /> : null}
+      {tab === "markdown" ? (
+        <DirectImportPanel {...props} kind="markdown" />
+      ) : null}
+      {tab === "html" ? <DirectImportPanel {...props} kind="html" /> : null}
+    </section>
   );
 }
 
@@ -311,16 +364,24 @@ function DocxImportPanel({
       const extra = JSON.parse(extraJson) as DocumentMetadata["extra"];
       const intent = await adminRequest<{
         intentToken: string;
-        assets: Array<{ index: number; pathname: string; placeholder: string }>;
+        assets: Array<{
+          index: number;
+          pathname: string;
+          relativePath: string;
+          placeholder: string | null;
+        }>;
       }>("/api/admin/import-intents", {
         method: "POST",
         body: JSON.stringify({
+          kind: "docx",
           originalFileName: file.name,
           assets: converted.assets.map((asset) => ({
             index: asset.index,
             sha256: asset.sha256,
             extension: asset.extension,
             contentType: asset.contentType,
+            relativePath: `image-${asset.index + 1}.${asset.extension}`,
+            size: asset.blob.size,
           })),
         }),
       });
@@ -340,6 +401,7 @@ function DocxImportPanel({
             index: asset.index,
             placeholder: target.placeholder,
             originalName: `image-${asset.index + 1}.${asset.extension}`,
+            relativePath: `images/${target.pathname.split("/").at(-1)}`,
             pathname: result.pathname,
             url: result.url,
             contentType: asset.contentType,
@@ -355,7 +417,8 @@ function DocxImportPanel({
           body: JSON.stringify({
             intentToken: intent.intentToken,
             originalFileName: file.name,
-            markdown: converted.markdown,
+            contentKind: "docx",
+            source: converted.markdown,
             assets: uploaded,
             metadata: { ...metadata, extra },
             categoryId,
@@ -376,7 +439,7 @@ function DocxImportPanel({
   }
 
   return (
-    <section className="space-y-5 rounded-2xl border bg-card p-6">
+    <div className="space-y-5">
       <div>
         <h2 className="text-2xl font-semibold">Importar DOCX</h2>
         <p className="text-sm text-muted-foreground">
@@ -436,7 +499,317 @@ function DocxImportPanel({
           </button>
         </div>
       ) : null}
-    </section>
+    </div>
+  );
+}
+
+function DirectImportPanel({
+  kind,
+  taxonomy,
+  onCreated,
+}: {
+  kind: "markdown" | "html";
+  taxonomy: Taxonomy;
+  onCreated: (document: VersionedDocument) => void;
+}) {
+  const [source, setSource] = useState("");
+  const [fileName, setFileName] = useState(
+    kind === "markdown" ? "nuevo.md" : "documento.html",
+  );
+  const [assetFiles, setAssetFiles] = useState<File[]>([]);
+  const [metadata, setMetadata] = useState<DocumentMetadata>(emptyMetadata);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
+  const [extraJson, setExtraJson] = useState("{}");
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function prepare(currentSource = source, currentFiles = assetFiles) {
+    return kind === "html"
+      ? prepareHtmlContent(currentSource, fileName, currentFiles)
+      : prepareMarkdownContent(currentSource, fileName, currentFiles);
+  }
+
+  async function loadMainFile(file: File | undefined) {
+    if (!file) return;
+    setError("");
+    try {
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(
+        await file.arrayBuffer(),
+      );
+      setFileName(file.name);
+      setSource(text);
+      const result =
+        kind === "html"
+          ? await prepareHtmlContent(text, file.name, assetFiles)
+          : await prepareMarkdownContent(text, file.name, assetFiles);
+      setSource(result.source);
+      setWarnings(result.warnings);
+      setMetadata((current) => ({
+        ...current,
+        ...result.metadata,
+        title: result.metadata.title ?? result.title,
+      }));
+      if (result.metadata.extra) {
+        setExtraJson(JSON.stringify(result.metadata.extra, null, 2));
+      }
+    } catch (caught) {
+      setError(messageOf(caught));
+      setMetadata((current) => ({
+        ...current,
+        title: current.title || file.name.replace(/\.(?:md|html)$/i, ""),
+      }));
+    }
+  }
+
+  async function selectAssets(files: FileList | null) {
+    const selected = companionFiles(files);
+    setAssetFiles(selected);
+    setError("");
+    try {
+      const result =
+        kind === "html"
+          ? await prepareHtmlContent(source, fileName, selected)
+          : await prepareMarkdownContent(source, fileName, selected);
+      setSource(result.source);
+      setWarnings(result.warnings);
+      setMetadata((current) => ({
+        ...current,
+        ...result.metadata,
+        title: current.title || result.metadata.title || result.title,
+      }));
+      if (result.metadata.extra) {
+        setExtraJson(JSON.stringify(result.metadata.extra, null, 2));
+      }
+    } catch (caught) {
+      setError(messageOf(caught));
+    }
+  }
+
+  async function saveDraft() {
+    setBusy(true);
+    setError("");
+    try {
+      const prepared = await prepare();
+      const normalizedMetadata = {
+        ...metadata,
+        title: metadata.title.trim() || prepared.title,
+        extra: JSON.parse(extraJson) as DocumentMetadata["extra"],
+      };
+      const intent = await adminRequest<{
+        intentToken: string;
+        assets: Array<{
+          index: number;
+          pathname: string;
+          relativePath: string;
+          placeholder: null;
+        }>;
+      }>("/api/admin/import-intents", {
+        method: "POST",
+        body: JSON.stringify({
+          kind,
+          originalFileName: fileName,
+          assets: prepared.assets.map((asset, index) => ({
+            index,
+            sha256: asset.sha256,
+            extension: asset.extension,
+            contentType: asset.contentType,
+            relativePath: asset.relativePath,
+            size: asset.size,
+          })),
+        }),
+      });
+      const uploaded = await uploadDirectAssets(
+        prepared.assets,
+        intent.assets,
+        intent.intentToken,
+      );
+      const document = await adminRequest<VersionedDocument>(
+        "/api/admin/documents",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            intentToken: intent.intentToken,
+            originalFileName: fileName,
+            contentKind: kind,
+            source: prepared.source,
+            assets: uploaded,
+            metadata: normalizedMetadata,
+            categoryId,
+            subcategoryId,
+          }),
+        },
+      );
+      setSource("");
+      setAssetFiles([]);
+      setMetadata(emptyMetadata);
+      setExtraJson("{}");
+      setWarnings([]);
+      onCreated(document);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const liveHtml = useMemo(
+    () => (kind === "html" && source ? processHtmlContent(source) : null),
+    [kind, source],
+  );
+  const visibleWarnings = liveHtml?.warnings ?? warnings;
+  const htmlPreview = liveHtml
+    ? injectControlledBase(liveHtml.html, "https://preview.invalid/assets/")
+    : "";
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-xl font-semibold">
+          {kind === "html" ? "Publicar HTML" : "Publicar Markdown"}
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {kind === "html"
+            ? "El código se conserva como HTML estático y se elimina cualquier comportamiento activo."
+            : "Carga un .md o escribe y pega el Markdown directamente."}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-4">
+        <Field
+          label={kind === "html" ? "Archivo .html" : "Archivo .md (opcional)"}
+        >
+          <input
+            type="file"
+            accept={kind === "html" ? ".html,text/html" : ".md,text/markdown"}
+            disabled={busy}
+            onChange={(event) => void loadMainFile(event.target.files?.[0])}
+          />
+        </Field>
+        <Field label="Carpeta complementaria de recursos (opcional)">
+          <input
+            ref={(node) => {
+              if (node) node.setAttribute("webkitdirectory", "");
+            }}
+            type="file"
+            multiple
+            disabled={busy}
+            onChange={(event) => void selectAssets(event.target.files)}
+          />
+        </Field>
+        <Field label="O seleccionar recursos sueltos">
+          <input
+            type="file"
+            multiple
+            disabled={busy}
+            onChange={(event) => void selectAssets(event.target.files)}
+          />
+        </Field>
+      </div>
+      <MetadataFields
+        metadata={metadata}
+        onChange={setMetadata}
+        taxonomy={taxonomy}
+        categoryId={categoryId}
+        subcategoryId={subcategoryId}
+        onCategoryChange={(value) => {
+          setCategoryId(value);
+          setSubcategoryId(null);
+        }}
+        onSubcategoryChange={setSubcategoryId}
+        extraJson={extraJson}
+        onExtraJsonChange={setExtraJson}
+      />
+      {visibleWarnings.length ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <strong>Elementos ajustados por seguridad</strong>
+          <ul className="mt-2 list-disc pl-5">
+            {visibleWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <textarea
+          aria-label={kind === "html" ? "Código HTML" : "Contenido Markdown"}
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
+          placeholder={
+            kind === "markdown" ? "# Título\n\nContenido…" : "<!doctype html>…"
+          }
+          className="min-h-[30rem] rounded-xl border bg-background p-4 font-mono text-sm"
+        />
+        {kind === "markdown" ? (
+          <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
+            <MarkdownRenderer source={source} />
+          </div>
+        ) : (
+          <iframe
+            title="Vista previa HTML aislada"
+            sandbox=""
+            srcDoc={htmlPreview}
+            className="min-h-[30rem] w-full rounded-xl border bg-white"
+          />
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {assetFiles.length} recurso{assetFiles.length === 1 ? "" : "s"}{" "}
+        seleccionado{assetFiles.length === 1 ? "" : "s"}.
+      </p>
+      {error ? (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <button
+        disabled={busy || !source.trim()}
+        onClick={saveDraft}
+        className="button-primary disabled:opacity-60"
+      >
+        {busy ? "Guardando…" : "Guardar borrador"}
+      </button>
+    </div>
+  );
+}
+
+async function uploadDirectAssets(
+  assets: BrowserAsset[],
+  targets: Array<{
+    index: number;
+    pathname: string;
+    relativePath: string;
+    placeholder: null;
+  }>,
+  intentToken: string,
+) {
+  return Promise.all(
+    assets.map(async (asset, index) => {
+      const target = targets.find((item) => item.index === index);
+      if (!target) throw new Error("No se reservó la ruta de un recurso.");
+      const body =
+        asset.file.type === asset.contentType
+          ? asset.file
+          : new Blob([await asset.file.arrayBuffer()], {
+              type: asset.contentType,
+            });
+      const result = await upload(target.pathname, body, {
+        access: "public",
+        handleUploadUrl: "/api/admin/blob/upload",
+        clientPayload: intentToken,
+      });
+      return {
+        index,
+        placeholder: null,
+        originalName: asset.originalName,
+        relativePath: target.relativePath,
+        pathname: result.pathname,
+        url: result.url,
+        contentType: asset.contentType,
+        size: asset.size,
+        sha256: asset.sha256,
+      };
+    }),
   );
 }
 
@@ -451,7 +824,7 @@ function DocumentEditor({
   onClose: () => void;
   onSaved: (document: VersionedDocument) => void;
 }) {
-  const [markdown, setMarkdown] = useState(document.markdown);
+  const [source, setSource] = useState(document.source);
   const [metadata, setMetadata] = useState(document.manifest.metadata);
   const [categoryId, setCategoryId] = useState(document.manifest.categoryId);
   const [subcategoryId, setSubcategoryId] = useState(
@@ -463,7 +836,7 @@ function DocumentEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const dirty =
-    markdown !== document.markdown ||
+    source !== document.source ||
     JSON.stringify(metadata) !== JSON.stringify(document.manifest.metadata) ||
     categoryId !== document.manifest.categoryId ||
     subcategoryId !== document.manifest.subcategoryId ||
@@ -486,7 +859,7 @@ function DocumentEditor({
         {
           method: "PUT",
           body: JSON.stringify({
-            markdown,
+            source,
             metadata: { ...metadata, extra: JSON.parse(extraJson) },
             categoryId,
             subcategoryId,
@@ -532,19 +905,48 @@ function DocumentEditor({
         extraJson={extraJson}
         onExtraJsonChange={setExtraJson}
       />
+      {document.manifest.assets.length ? (
+        <details className="rounded-xl border p-4">
+          <summary className="cursor-pointer font-medium">
+            Recursos asociados ({document.manifest.assets.length})
+          </summary>
+          <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+            {document.manifest.assets.map((asset) => (
+              <li key={asset.id} className="break-all font-mono">
+                {asset.relativePath}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       <div className="grid gap-5 lg:grid-cols-2">
         <textarea
-          aria-label="Markdown"
-          value={markdown}
-          onChange={(event) => setMarkdown(event.target.value)}
+          aria-label={
+            document.manifest.content.kind === "html" ? "HTML" : "Markdown"
+          }
+          value={source}
+          onChange={(event) => setSource(event.target.value)}
           className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
         />
-        <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
-          <MarkdownRenderer
-            source={markdown}
-            baseUrl={document.manifest.markdownUrl}
+        {document.manifest.content.kind === "markdown" ? (
+          <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
+            <MarkdownRenderer
+              source={source}
+              baseUrl={document.manifest.content.url}
+            />
+          </div>
+        ) : (
+          <iframe
+            title="Vista previa HTML"
+            sandbox=""
+            srcDoc={injectControlledBase(
+              processHtmlContent(source).html,
+              document.manifest.content.assetBaseUrl ??
+                document.manifest.content.url,
+            )}
+            className="min-h-[32rem] w-full rounded-xl border bg-white"
           />
-        </div>
+        )}
       </div>
       {error ? (
         <p role="alert" className="text-destructive">
@@ -737,6 +1139,7 @@ function DocumentList({
               </h3>
               <p className="text-sm text-muted-foreground">
                 {document.manifest.status} ·{" "}
+                {document.manifest.content.kind.toUpperCase()} ·{" "}
                 {new Date(document.manifest.updatedAt).toLocaleString()}
               </p>
             </div>

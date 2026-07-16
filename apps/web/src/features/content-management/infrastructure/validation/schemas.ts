@@ -13,12 +13,16 @@ export const metadataSchema = z.object({
 });
 
 export const uploadedAssetSchema = z.object({
-  index: z.number().int().min(0).max(99),
-  placeholder: z.string().regex(/^__DOCX_ASSET_\d+__$/),
+  index: z.number().int().min(0).max(199),
+  placeholder: z
+    .string()
+    .regex(/^__DOCX_ASSET_\d+__$/)
+    .nullable(),
   originalName: z.string().min(1).max(255),
+  relativePath: z.string().min(1).max(1000),
   pathname: z.string().min(1),
   url: z.url(),
-  contentType: z.string().regex(/^image\//),
+  contentType: z.string().min(1).max(100),
   size: z.number().int().nonnegative(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
@@ -26,15 +30,16 @@ export const uploadedAssetSchema = z.object({
 export const createDocumentSchema = z.object({
   intentToken: z.string().min(1),
   originalFileName: z.string().min(1).max(255),
-  markdown: z.string().max(2 * 1024 * 1024),
-  assets: z.array(uploadedAssetSchema).max(100),
+  contentKind: z.enum(["docx", "markdown", "html"]),
+  source: z.string().max(2 * 1024 * 1024),
+  assets: z.array(uploadedAssetSchema).max(200),
   metadata: metadataSchema,
   categoryId: z.string().nullable(),
   subcategoryId: z.string().nullable(),
 });
 
 export const updateDocumentSchema = z.object({
-  markdown: z.string().max(2 * 1024 * 1024),
+  source: z.string().max(2 * 1024 * 1024),
   metadata: metadataSchema,
   categoryId: z.string().nullable(),
   subcategoryId: z.string().nullable(),
