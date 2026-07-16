@@ -9,7 +9,16 @@ const KEYBOARD_POOL_SIZE = 6;
 const MOUSE_POOL_SIZE = 3;
 const KEYBOARD_VOLUME = 0.2;
 const MOUSE_VOLUME = 0.24;
-const SOUND_KEYS = new Set(["Backspace", "Delete", "Enter", "Tab"]);
+const SOUND_KEYS = new Set([
+  "Backspace",
+  "CapsLock",
+  "Delete",
+  "Enter",
+  "Shift",
+  "Tab",
+]);
+const HOME_GLOBAL_SOUND_KEYS = new Set(["CapsLock", "Shift"]);
+const SOUND_MOUSE_BUTTONS = new Set([0, 2]);
 
 type AudioPool = {
   items: HTMLAudioElement[];
@@ -70,14 +79,25 @@ export function InterfaceAudioFeedback() {
     );
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      // The Spline scene already owns this sound on the home page.
-      if (!isHomePageRef.current && isTypingKey(event)) {
+      const shouldComplementSpline =
+        isHomePageRef.current && HOME_GLOBAL_SOUND_KEYS.has(event.key);
+
+      // Spline owns character sounds on the home page. The global layer only
+      // complements modifier keys there, preventing duplicate character audio.
+      if (
+        isTypingKey(event) &&
+        (!isHomePageRef.current || shouldComplementSpline)
+      ) {
         playNext(keyboardPool);
       }
     };
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.isPrimary && event.button === 0 && event.pointerType === "mouse") {
+      if (
+        event.isPrimary &&
+        SOUND_MOUSE_BUTTONS.has(event.button) &&
+        event.pointerType === "mouse"
+      ) {
         playNext(mousePool);
       }
     };
