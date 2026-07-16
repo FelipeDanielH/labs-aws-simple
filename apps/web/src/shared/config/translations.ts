@@ -55,9 +55,9 @@ export const messages = {
       main: "Navegación principal",
     },
     eyebrow: "Base inicial",
-    title: "Plataforma web escalable",
+    title: "Laboratorios de AWS",
     description:
-      "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query y Zustand.",
+      "Informes para Morris Opazo. Programa AWS Re/Start Cloud Practitioner. servicios como EC2, S3 y System Manager. Conceptos como Subredes, VPC ¡y mucho mas!",
     primaryAction: "Explorar laboratorios",
     sceneLabel: "Computador 3D interactivo que sigue el cursor",
     pageLoading: "Preparando la página",
@@ -119,9 +119,9 @@ export const messages = {
       main: "Main navigation",
     },
     eyebrow: "Initial foundation",
-    title: "Scalable web platform",
+    title: "AWS Laboratories",
     description:
-      "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, and Zustand.",
+      "Reports for Morris Opazo. AWS Re/Start Cloud Practitioner program. Services such as EC2, S3, and Systems Manager. Concepts such as subnets, VPCs, and much more!",
     primaryAction: "Explore laboratories",
     sceneLabel: "Interactive 3D computer that follows the cursor",
     pageLoading: "Preparing the page",
