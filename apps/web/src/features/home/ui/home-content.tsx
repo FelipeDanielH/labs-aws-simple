@@ -127,13 +127,12 @@ export function HomeContent() {
             />
           </motion.div>
 
-          <div className="hero-scene-veil pointer-events-none absolute inset-0 -z-10" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-32 bg-gradient-to-t from-background/80 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-24 bg-gradient-to-t from-background/45 to-transparent" />
 
           <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-7xl items-center px-6 py-12 sm:py-16 lg:py-20">
             <motion.div
               animate={isSceneReady ? "visible" : "hidden"}
-              className="relative z-10 min-w-0 max-w-2xl lg:max-w-[43rem]"
+              className="relative z-10 min-w-0 max-w-2xl rounded-[2rem] border border-foreground/10 bg-background/72 p-6 shadow-2xl shadow-black/10 ring-1 ring-white/15 backdrop-blur-xl supports-[backdrop-filter]:bg-background/58 sm:p-8 lg:max-w-[43rem] lg:p-10"
               initial={motionInitial}
               variants={textContainerVariants}
             >
