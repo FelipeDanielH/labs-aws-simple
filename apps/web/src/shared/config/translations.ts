@@ -11,7 +11,7 @@ type Messages = {
   description: string;
   primaryAction: string;
   sceneLabel: string;
-  sceneLoading: string;
+  pageLoading: string;
   preferences: string;
   settingsMenu: string;
   theme: string;
@@ -60,7 +60,7 @@ export const messages = {
       "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query y Zustand.",
     primaryAction: "Explorar laboratorios",
     sceneLabel: "Computador 3D interactivo que sigue el cursor",
-    sceneLoading: "Cargando experiencia 3D…",
+    pageLoading: "Preparando la página",
     preferences: "Preferencias",
     settingsMenu: "Abrir preferencias",
     theme: "Tema",
@@ -124,7 +124,7 @@ export const messages = {
       "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, and Zustand.",
     primaryAction: "Explore laboratories",
     sceneLabel: "Interactive 3D computer that follows the cursor",
-    sceneLoading: "Loading 3D experience…",
+    pageLoading: "Preparing the page",
     preferences: "Preferences",
     settingsMenu: "Open preferences",
     theme: "Theme",

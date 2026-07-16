@@ -1,24 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { Application } from "@splinetool/runtime";
 
-const SCENE_URL =
-  "https://my.spline.design/cutecomputerfollowcursor-t2nYvcrFzPfaJWM45QnLl5ka/scene.splinecode";
-
-function SceneLoading({ label }: { label: string }) {
-  return (
-    <div
-      className="absolute inset-0 grid place-items-center bg-card/70 backdrop-blur-sm"
-      role="status"
-    >
-      <div className="flex items-center gap-3 rounded-full border bg-background/80 px-4 py-2 text-sm text-muted-foreground shadow-sm">
-        <span className="size-2 animate-pulse rounded-full bg-primary motion-reduce:animate-none" />
-        <span>{label}</span>
-      </div>
-    </div>
-  );
-}
+import { HOME_SPLINE_SCENE_URL } from "@/features/home/config/spline-scene";
 
 const Spline = dynamic(
   () =>
@@ -33,21 +19,42 @@ const Spline = dynamic(
 
 export function SplineHeroScene({
   label,
-  loadingLabel,
+  onReady,
 }: {
   label: string;
-  loadingLabel: string;
+  onReady: () => void;
 }) {
-  const [isLoaded, setIsLoaded] = useState(false);
+  const appRef = useRef<Application | null>(null);
+  const didLoadRef = useRef(false);
+
+  const handleLoad = useCallback(
+    (app: Application) => {
+      appRef.current = app;
+      app.setGlobalEvents(true);
+
+      if (!didLoadRef.current) {
+        didLoadRef.current = true;
+        onReady();
+      }
+    },
+    [onReady],
+  );
+
+  useEffect(
+    () => () => {
+      appRef.current?.setGlobalEvents(false);
+      appRef.current = null;
+    },
+    [],
+  );
 
   return (
     <div className="spline-hero-scene relative h-full min-h-0 w-full overflow-hidden">
       <span className="sr-only">{label}</span>
-      {isLoaded ? null : <SceneLoading label={loadingLabel} />}
       <Spline
         aria-hidden="true"
-        onLoad={() => setIsLoaded(true)}
-        scene={SCENE_URL}
+        onLoad={handleLoad}
+        scene={HOME_SPLINE_SCENE_URL}
       />
     </div>
   );

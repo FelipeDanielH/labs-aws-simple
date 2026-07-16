@@ -1,10 +1,47 @@
 @import "@workspace/ui/globals.css";
 
 @layer components {
-  .spline-hero-scene > div,
+  .spline-hero-scene > div {
+    position: absolute !important;
+    top: -5% !important;
+    left: 8% !important;
+    width: 120% !important;
+    height: 110% !important;
+  }
+
   .spline-hero-scene canvas {
     width: 100% !important;
     height: 100% !important;
+  }
+
+  .hero-scene-veil {
+    background: linear-gradient(
+      90deg,
+      var(--background) 0%,
+      color-mix(in oklab, var(--background) 98%, transparent) 32%,
+      color-mix(in oklab, var(--background) 88%, transparent) 43%,
+      color-mix(in oklab, var(--background) 42%, transparent) 58%,
+      transparent 76%
+    );
+  }
+
+  @media (max-width: 63.999rem) {
+    .spline-hero-scene > div {
+      top: 38% !important;
+      left: -25% !important;
+      width: 150% !important;
+      height: 68% !important;
+    }
+
+    .hero-scene-veil {
+      background: linear-gradient(
+        180deg,
+        var(--background) 0%,
+        color-mix(in oklab, var(--background) 96%, transparent) 38%,
+        color-mix(in oklab, var(--background) 38%, transparent) 58%,
+        transparent 76%
+      );
+    }
   }
 
   .input {
