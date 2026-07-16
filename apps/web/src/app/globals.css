@@ -1,6 +1,101 @@
 @import "@workspace/ui/globals.css";
 
+@media (pointer: fine) {
+  html[data-custom-cursor="true"],
+  html[data-custom-cursor="true"] body,
+  html[data-custom-cursor="true"] a,
+  html[data-custom-cursor="true"] button,
+  html[data-custom-cursor="true"] select,
+  html[data-custom-cursor="true"] option,
+  html[data-custom-cursor="true"] summary,
+  html[data-custom-cursor="true"] [role="button"],
+  html[data-custom-cursor="true"] [role="link"],
+  html[data-custom-cursor="true"] [role="menuitem"],
+  html[data-custom-cursor="true"] [role="menuitemcheckbox"],
+  html[data-custom-cursor="true"] [role="menuitemradio"],
+  html[data-custom-cursor="true"] [role="option"] {
+    cursor: none !important;
+  }
+
+  html[data-custom-cursor="true"] input,
+  html[data-custom-cursor="true"] textarea,
+  html[data-custom-cursor="true"] [contenteditable="true"],
+  html[data-custom-cursor="true"] [data-native-cursor] {
+    cursor: auto !important;
+  }
+}
+
 @layer components {
+  .custom-cursor-layer {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    color: var(--primary);
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .custom-cursor-position {
+    position: fixed;
+    top: 0;
+    left: 0;
+    will-change: transform;
+  }
+
+  .custom-cursor-trail {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .custom-cursor-shape {
+    display: block;
+    width: 2.15rem;
+    height: 2.15rem;
+    background-color: var(--primary);
+    filter: drop-shadow(
+      0 0.1rem 0.18rem color-mix(in oklab, var(--background) 72%, transparent)
+    );
+    mask: url("/assets/cursor-pointer.svg") center / contain no-repeat;
+    transform: translate(-19%, -25%) scale(1);
+    transition:
+      background-color 180ms ease,
+      filter 180ms ease,
+      transform 140ms ease;
+    -webkit-mask: url("/assets/cursor-pointer.svg") center / contain no-repeat;
+  }
+
+  .custom-cursor-layer[data-visible="true"] {
+    opacity: 1;
+  }
+
+  .custom-cursor-layer[data-interactive="true"] .custom-cursor-shape {
+    filter: drop-shadow(
+      0 0 0.32rem color-mix(in oklab, var(--primary) 52%, transparent)
+    );
+    transform: translate(-19%, -25%) scale(1.12);
+  }
+
+  .custom-cursor-layer[data-pressed="true"] .custom-cursor-shape {
+    transform: translate(-19%, -25%) rotate(-3deg) scale(0.82);
+  }
+
+  @media (pointer: fine) {
+    .custom-cursor-layer {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .custom-cursor-layer,
+    .custom-cursor-shape {
+      transition-duration: 0ms;
+    }
+  }
+
   .spline-hero-scene > div {
     position: absolute !important;
     top: -5% !important;
