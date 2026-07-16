@@ -3,13 +3,26 @@
 import { useEffect, useRef } from "react";
 
 const NATIVE_CURSOR_SELECTOR =
-  "input, textarea, select, [contenteditable='true'], [data-native-cursor]";
-const INTERACTIVE_SELECTOR =
-  "a, button, summary, [role='button'], [role='link'], [data-cursor-interactive]";
-const MAX_PARTICLES = 260;
+  "input, textarea, [contenteditable='true'], [data-native-cursor]";
+const INTERACTIVE_SELECTOR = [
+  "a",
+  "button",
+  "select",
+  "option",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[role='menuitemcheckbox']",
+  "[role='menuitemradio']",
+  "[role='option']",
+  "[data-cursor-interactive]",
+].join(", ");
+const MAX_PARTICLES = 300;
 const MAX_PARTICLES_PER_MOVE = 16;
 const PARTICLE_SPACING = 3.25;
-const CURSOR_CLEARANCE = 8;
+const TRAIL_ORIGIN_OFFSET: Point = { x: 7, y: 20 };
+const TRAIL_BASE_HALF_WIDTH = 5.5;
 
 type Point = {
   x: number;
@@ -152,31 +165,47 @@ export function CustomCursor() {
         return;
       }
 
-      const distance = distanceBetween(from, to);
-      const usableDistance = Math.max(0, distance - CURSOR_CLEARANCE);
-      const count = Math.min(
-        MAX_PARTICLES_PER_MOVE,
-        Math.floor(usableDistance / PARTICLE_SPACING),
-      );
+      const trailFrom = {
+        x: from.x + TRAIL_ORIGIN_OFFSET.x,
+        y: from.y + TRAIL_ORIGIN_OFFSET.y,
+      };
+      const trailTo = {
+        x: to.x + TRAIL_ORIGIN_OFFSET.x,
+        y: to.y + TRAIL_ORIGIN_OFFSET.y,
+      };
+      const distance = distanceBetween(trailFrom, trailTo);
 
-      if (count === 0) {
+      if (distance < 0.5) {
         return;
       }
 
-      const directionX = (to.x - from.x) / distance;
-      const directionY = (to.y - from.y) / distance;
+      const count = Math.min(
+        MAX_PARTICLES_PER_MOVE,
+        Math.ceil(distance / PARTICLE_SPACING),
+      );
+      const directionX = (trailTo.x - trailFrom.x) / distance;
+      const directionY = (trailTo.y - trailFrom.y) / distance;
 
       for (let index = 1; index <= count; index += 1) {
-        const distanceFromStart = (usableDistance * index) / (count + 1);
-        const jitter = (Math.random() - 0.5) * 8;
+        const distanceFromStart = (distance * index) / count;
+        const baseOffset =
+          (Math.random() * 2 - 1) * TRAIL_BASE_HALF_WIDTH;
+        const jitter = (Math.random() - 0.5) * 5;
         const particle: TrailParticle = {
-          x: from.x + directionX * distanceFromStart - directionY * jitter,
-          y: from.y + directionY * distanceFromStart + directionX * jitter,
+          x:
+            trailFrom.x +
+            directionX * distanceFromStart +
+            baseOffset -
+            directionY * jitter,
+          y:
+            trailFrom.y +
+            directionY * distanceFromStart +
+            directionX * jitter,
           velocityX: (Math.random() - 0.5) * 0.012,
           velocityY: 0.006 + Math.random() * 0.014,
           age: 0,
           lifetime: 460 + Math.random() * 380,
-          size: 1 + Math.random() * 1.65,
+          size: 1.2 + Math.random() * 1.85,
           isDiamond: Math.random() > 0.72,
         };
 

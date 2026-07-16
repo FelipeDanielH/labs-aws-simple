@@ -5,15 +5,20 @@
   html[data-custom-cursor="true"] body,
   html[data-custom-cursor="true"] a,
   html[data-custom-cursor="true"] button,
+  html[data-custom-cursor="true"] select,
+  html[data-custom-cursor="true"] option,
   html[data-custom-cursor="true"] summary,
   html[data-custom-cursor="true"] [role="button"],
-  html[data-custom-cursor="true"] [role="link"] {
+  html[data-custom-cursor="true"] [role="link"],
+  html[data-custom-cursor="true"] [role="menuitem"],
+  html[data-custom-cursor="true"] [role="menuitemcheckbox"],
+  html[data-custom-cursor="true"] [role="menuitemradio"],
+  html[data-custom-cursor="true"] [role="option"] {
     cursor: none !important;
   }
 
   html[data-custom-cursor="true"] input,
   html[data-custom-cursor="true"] textarea,
-  html[data-custom-cursor="true"] select,
   html[data-custom-cursor="true"] [contenteditable="true"],
   html[data-custom-cursor="true"] [data-native-cursor] {
     cursor: auto !important;
