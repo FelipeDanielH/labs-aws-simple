@@ -32,6 +32,7 @@
     inset: 0;
     z-index: 9999;
     display: none;
+    color: var(--primary);
     opacity: 0;
     transition: opacity 150ms ease;
   }

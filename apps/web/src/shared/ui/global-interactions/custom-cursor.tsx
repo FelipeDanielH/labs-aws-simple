@@ -78,7 +78,7 @@ export function CustomCursor() {
     };
 
     const updateThemeColor = () => {
-      trailColor = window.getComputedStyle(cursorShape).backgroundColor;
+      trailColor = window.getComputedStyle(layer).color;
     };
 
     const resizeCanvas = () => {
@@ -299,7 +299,7 @@ export function CustomCursor() {
     handlePointerCapabilityChange();
     themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class", "style"],
+      attributeFilter: ["class", "data-theme", "style"],
     });
     window.addEventListener("resize", resizeCanvas, { passive: true });
     window.addEventListener("pointermove", handlePointerMove, {
