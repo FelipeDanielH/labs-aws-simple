@@ -9,6 +9,9 @@ type Messages = {
   eyebrow: string;
   title: string;
   description: string;
+  primaryAction: string;
+  sceneLabel: string;
+  sceneLoading: string;
   preferences: string;
   settingsMenu: string;
   theme: string;
@@ -55,6 +58,9 @@ export const messages = {
     title: "Plataforma web escalable",
     description:
       "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query y Zustand.",
+    primaryAction: "Explorar laboratorios",
+    sceneLabel: "Computador 3D interactivo que sigue el cursor",
+    sceneLoading: "Cargando experiencia 3D…",
     preferences: "Preferencias",
     settingsMenu: "Abrir preferencias",
     theme: "Tema",
@@ -116,6 +122,9 @@ export const messages = {
     title: "Scalable web platform",
     description:
       "Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query, and Zustand.",
+    primaryAction: "Explore laboratories",
+    sceneLabel: "Interactive 3D computer that follows the cursor",
+    sceneLoading: "Loading 3D experience…",
     preferences: "Preferences",
     settingsMenu: "Open preferences",
     theme: "Theme",

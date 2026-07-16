@@ -1,6 +1,12 @@
 @import "@workspace/ui/globals.css";
 
 @layer components {
+  .spline-hero-scene > div,
+  .spline-hero-scene canvas {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
   .input {
     @apply w-full rounded-lg border bg-background px-3 py-2 text-foreground;
   }
