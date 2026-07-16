@@ -127,32 +127,22 @@ export function HomeContent() {
             />
           </motion.div>
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-24 bg-gradient-to-t from-background/45 to-transparent" />
-
           <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-7xl items-center px-6 py-12 sm:py-16 lg:py-20">
             <motion.div
               animate={isSceneReady ? "visible" : "hidden"}
-              className="relative z-10 min-w-0 max-w-2xl rounded-[2rem] border border-foreground/10 bg-background/72 p-6 shadow-2xl shadow-black/10 ring-1 ring-white/15 backdrop-blur-xl supports-[backdrop-filter]:bg-background/58 sm:p-8 lg:max-w-[43rem] lg:p-10"
+              className="relative z-10 min-w-0 max-w-2xl lg:max-w-[38rem]"
               initial={motionInitial}
               variants={textContainerVariants}
             >
-              <motion.p
-                className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/70 px-3 py-1.5 text-sm font-medium text-primary shadow-sm backdrop-blur"
-                variants={textItemVariants}
-              >
-                <span className="size-2 rounded-full bg-primary" />
-                {copy.eyebrow}
-              </motion.p>
-
               <motion.h1
-                className="max-w-[14ch] text-4xl font-semibold tracking-[-0.035em] text-balance sm:text-5xl lg:text-6xl xl:text-7xl"
+                className="max-w-[14ch] text-4xl font-semibold tracking-[-0.035em] text-white text-shadow-lg/30 text-shadow-black text-balance sm:text-5xl lg:text-6xl xl:text-7xl"
                 variants={textItemVariants}
               >
                 {copy.title}
               </motion.h1>
 
               <motion.p
-                className="mt-6 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg"
+                className="mt-6 max-w-xl text-base leading-7 text-white/85 text-shadow-md text-shadow-black sm:text-lg"
                 variants={textItemVariants}
               >
                 {copy.description}
