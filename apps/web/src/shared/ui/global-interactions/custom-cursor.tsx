@@ -6,10 +6,10 @@ const NATIVE_CURSOR_SELECTOR =
   "input, textarea, select, [contenteditable='true'], [data-native-cursor]";
 const INTERACTIVE_SELECTOR =
   "a, button, summary, [role='button'], [role='link'], [data-cursor-interactive]";
-const MAX_PARTICLES = 180;
-const MAX_PARTICLES_PER_MOVE = 12;
-const PARTICLE_SPACING = 4.5;
-const CURSOR_CLEARANCE = 10;
+const MAX_PARTICLES = 260;
+const MAX_PARTICLES_PER_MOVE = 16;
+const PARTICLE_SPACING = 3.25;
+const CURSOR_CLEARANCE = 8;
 
 type Point = {
   x: number;
@@ -87,10 +87,10 @@ export function CustomCursor() {
 
     const drawParticle = (particle: TrailParticle) => {
       const progress = particle.age / particle.lifetime;
-      const opacity = Math.max(0, 1 - progress) ** 1.7;
-      const size = particle.size * (1 - progress * 0.45);
+      const opacity = Math.max(0, 1 - progress) ** 1.35;
+      const size = particle.size * (1 - progress * 0.35);
 
-      context.globalAlpha = opacity * 0.78;
+      context.globalAlpha = opacity * 0.94;
       context.fillStyle = trailColor;
       context.beginPath();
 
@@ -175,8 +175,8 @@ export function CustomCursor() {
           velocityX: (Math.random() - 0.5) * 0.012,
           velocityY: 0.006 + Math.random() * 0.014,
           age: 0,
-          lifetime: 380 + Math.random() * 340,
-          size: 0.6 + Math.random() * 1.3,
+          lifetime: 460 + Math.random() * 380,
+          size: 1 + Math.random() * 1.65,
           isDiamond: Math.random() > 0.72,
         };
 
