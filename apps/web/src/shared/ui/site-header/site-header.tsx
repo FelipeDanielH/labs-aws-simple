@@ -21,8 +21,8 @@ export function SiteHeader({
   const copy = messages[locale].navigation;
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-      <div className="grid h-16 w-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+    <header className="sticky top-0 z-50 h-16 px-2 py-1.5 sm:px-4">
+      <div className="grid h-full w-full grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-[1.4rem] border border-foreground/10 bg-background/68 px-3 shadow-lg shadow-black/5 ring-1 ring-white/15 backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/52 sm:px-5">
         <Link
           href="/"
           aria-label={copy.home}
@@ -50,10 +50,7 @@ export function SiteHeader({
             />
           }
         >
-          <CategoryNavigation
-            ariaLabel={copy.main}
-            categories={categories}
-          />
+          <CategoryNavigation ariaLabel={copy.main} categories={categories} />
         </Suspense>
 
         <div className="flex items-center justify-end">
