@@ -1,6 +1,6 @@
 export const HOME_SPLINE_SCENE_URL =
   "https://my.spline.design/cutecomputerfollowcursor-wrIzkaGLugVdyjIBDDgSvRbQ/scene.splinecode";
 
-export const HOME_SPLINE_CAMERA_ID = "a2d9aae3-fa6b-449b-9f6d-26c87808a86f";
+export const HOME_SPLINE_COMPUTER_ID = "0d83e7c5-d265-44a7-9044-440a72e82a94";
 
-export const HOME_SPLINE_DESKTOP_CAMERA_X_OFFSET = 480;
+export const HOME_SPLINE_DESKTOP_COMPUTER_X_OFFSET = 720;
