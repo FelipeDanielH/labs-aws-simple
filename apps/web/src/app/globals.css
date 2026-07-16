@@ -35,51 +35,46 @@
     position: fixed;
     top: 0;
     left: 0;
-    display: grid;
-    place-items: center;
     will-change: transform;
   }
 
-  .custom-cursor-ring {
-    position: absolute;
-    width: 2rem;
-    height: 2rem;
-    border: 1px solid color-mix(in oklab, var(--primary) 72%, transparent);
-    border-radius: 9999px;
-    background: color-mix(in oklab, var(--primary) 8%, transparent);
-    box-shadow: 0 0 1.25rem
-      color-mix(in oklab, var(--primary) 22%, transparent);
-    transform: translate(-50%, -50%) scale(1);
-    transition:
-      background-color 160ms ease,
-      border-color 160ms ease,
-      transform 160ms ease;
+  .custom-cursor-trail {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
   }
 
-  .custom-cursor-dot {
-    position: absolute;
-    width: 0.35rem;
-    height: 0.35rem;
-    border-radius: 9999px;
-    background: var(--primary);
-    box-shadow: 0 0 0.7rem
-      color-mix(in oklab, var(--primary) 70%, transparent);
-    transform: translate(-50%, -50%);
+  .custom-cursor-shape {
+    display: block;
+    width: 2.15rem;
+    height: 2.15rem;
+    background-color: var(--primary);
+    filter: drop-shadow(
+      0 0.1rem 0.18rem color-mix(in oklab, var(--background) 72%, transparent)
+    );
+    mask: url("/assets/cursor-pointer.svg") center / contain no-repeat;
+    transform: translate(-19%, -25%) scale(1);
+    transition:
+      background-color 180ms ease,
+      filter 180ms ease,
+      transform 140ms ease;
+    -webkit-mask: url("/assets/cursor-pointer.svg") center / contain no-repeat;
   }
 
   .custom-cursor-layer[data-visible="true"] {
     opacity: 1;
   }
 
-  .custom-cursor-layer[data-interactive="true"] .custom-cursor-ring {
-    border-color: color-mix(in oklab, var(--primary) 90%, transparent);
-    background: color-mix(in oklab, var(--primary) 18%, transparent);
-    transform: translate(-50%, -50%) scale(1.38);
+  .custom-cursor-layer[data-interactive="true"] .custom-cursor-shape {
+    filter: drop-shadow(
+      0 0 0.32rem color-mix(in oklab, var(--primary) 52%, transparent)
+    );
+    transform: translate(-19%, -25%) scale(1.12);
   }
 
-  .custom-cursor-layer[data-pressed="true"] .custom-cursor-ring {
-    background: color-mix(in oklab, var(--primary) 28%, transparent);
-    transform: translate(-50%, -50%) scale(0.72);
+  .custom-cursor-layer[data-pressed="true"] .custom-cursor-shape {
+    transform: translate(-19%, -25%) rotate(-3deg) scale(0.82);
   }
 
   @media (pointer: fine) {
@@ -90,7 +85,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .custom-cursor-layer,
-    .custom-cursor-ring {
+    .custom-cursor-shape {
       transition-duration: 0ms;
     }
   }
