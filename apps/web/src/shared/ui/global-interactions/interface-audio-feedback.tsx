@@ -7,8 +7,8 @@ const KEYBOARD_SOUND_PATH = "/assets/keyboard_stroke.mp3";
 const MOUSE_SOUND_PATH = "/assets/mouse_click.mp3";
 const KEYBOARD_POOL_SIZE = 6;
 const MOUSE_POOL_SIZE = 3;
-const KEYBOARD_VOLUME = 0.2;
-const MOUSE_VOLUME = 0.24;
+const KEYBOARD_VOLUME = 0.25;
+const MOUSE_VOLUME = 0.25;
 const SOUND_KEYS = new Set([
   "Backspace",
   "CapsLock",
@@ -51,7 +51,13 @@ function playNext(pool: AudioPool) {
 }
 
 function isTypingKey(event: KeyboardEvent) {
-  if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) {
+  if (
+    event.repeat ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.isComposing
+  ) {
     return false;
   }
 
