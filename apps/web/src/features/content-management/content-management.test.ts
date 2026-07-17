@@ -13,8 +13,14 @@ import { processHtmlContent } from "./application/html-content";
 import { assertSafeMarkdownUrls } from "./application/markdown-content";
 import {
   metadataSchema,
+  createDocumentSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
+import { resolveSharedAssetReferences } from "./application/shared-asset-localization";
+import {
+  finalizeTaxonomyLocalizations,
+  updateLocalizedTaxonomyName,
+} from "./application/taxonomy-localization";
 import { convertDocxHtmlToMarkdown } from "./infrastructure/browser/mammoth-docx-converter";
 import {
   prepareHtmlContent,
@@ -34,6 +40,111 @@ describe("content management contracts", () => {
     expect(contentPaths.documentFolder(slug, "abc123")).toBe(
       "aws-labs/v1/documents/guia-de-aws-s3-abc123",
     );
+  });
+
+  it("genera rutas de contenido y taxonomía separadas por idioma", () => {
+    expect(
+      contentPaths.content(
+        "aws-labs/v1/documents/lab-id",
+        "en",
+        "generation",
+        "markdown",
+      ),
+    ).toBe("aws-labs/v1/documents/lab-id/en/document-generation.md");
+    expect(contentPaths.taxonomyLocaleVersion("es", "generation")).toBe(
+      "aws-labs/v1/system/taxonomy/es/taxonomy-generation.json",
+    );
+  });
+
+  it("exige español al crear y no permite repetir idiomas", () => {
+    const base = {
+      intentToken: "token",
+      assets: [],
+      order: null,
+      categoryId: null,
+      subcategoryId: null,
+    };
+    const variant = {
+      locale: "en" as const,
+      originalFileName: "lab.md",
+      contentKind: "markdown" as const,
+      source: "# Lab",
+      metadata: {
+        title: "Lab",
+        summary: "",
+        author: "",
+        tags: [],
+        extra: {},
+      },
+    };
+    expect(() =>
+      createDocumentSchema.parse({ ...base, variants: [variant] }),
+    ).toThrow("La versión en español es obligatoria");
+    expect(() =>
+      createDocumentSchema.parse({
+        ...base,
+        variants: [
+          { ...variant, locale: "es" },
+          { ...variant, locale: "es" },
+        ],
+      }),
+    ).toThrow("No se puede repetir un idioma");
+  });
+
+  it("reutiliza imágenes españolas por hash y rechaza imágenes nuevas", () => {
+    const shared = [
+      {
+        index: 0,
+        relativePath: "images/es.png",
+        sha256: "abc",
+        placeholder: "__DOCX_ASSET_0__",
+      },
+    ];
+    const uploaded = [
+      {
+        index: 0,
+        relativePath: "images/stored.png",
+        sha256: "abc",
+      },
+    ];
+    expect(
+      resolveSharedAssetReferences(
+        "![Diagram](__DOCX_ASSET_8__)",
+        [
+          {
+            index: 8,
+            relativePath: "images/en.png",
+            sha256: "abc",
+            placeholder: "__DOCX_ASSET_8__",
+          },
+        ],
+        shared,
+        uploaded,
+      ),
+    ).toBe("![Diagram](./images/stored.png)");
+    expect(
+      resolveSharedAssetReferences(
+        "![Diagram](./images/es.png)",
+        [],
+        shared,
+        uploaded,
+      ),
+    ).toBe("![Diagram](./images/stored.png)");
+    expect(() =>
+      resolveSharedAssetReferences(
+        "![New](new.png)",
+        [
+          {
+            index: 1,
+            relativePath: "new.png",
+            sha256: "different",
+            placeholder: null,
+          },
+        ],
+        shared,
+        uploaded,
+      ),
+    ).toThrow("La traducción contiene un recurso nuevo");
   });
 
   it("rechaza rutas fuera del prefijo administrado", () => {
@@ -129,9 +240,62 @@ describe("content management contracts", () => {
       publishedAt: "2026-01-01T00:00:00.000Z",
       deletedAt: null,
     });
-    expect(normalized.schemaVersion).toBe(2);
+    expect(normalized.schemaVersion).toBe(3);
+    expect(normalized.localizations.es?.status).toBe("published");
     expect(normalized.content.kind).toBe("markdown");
     expect(normalized.content.pathname).toContain("document-old.md");
+  });
+
+  it("conserva ambas localizaciones al leer manifiestos v3", () => {
+    const now = "2026-07-17T00:00:00.000Z";
+    const localization = (
+      locale: "es" | "en",
+      slug: string,
+      title: string,
+    ) => ({
+      locale,
+      slug,
+      originalFileName: `${slug}.md`,
+      status: "published",
+      metadata: {
+        title,
+        summary: "",
+        author: "",
+        tags: [],
+        order: null,
+        extra: {},
+      },
+      content: {
+        kind: "markdown",
+        pathname: `aws-labs/v1/documents/lab-id/${locale}/document.md`,
+        url: `https://store.public.blob.vercel-storage.com/lab-id/${locale}/document.md`,
+        assetBaseUrl: null,
+      },
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: now,
+      deletedAt: null,
+    });
+    const normalized = normalizeDocumentManifest({
+      schemaVersion: 3,
+      id: "lab-id",
+      folder: "aws-labs/v1/documents/lab-id",
+      canonicalKey: "laboratorio",
+      order: 1,
+      categoryId: null,
+      subcategoryId: null,
+      assets: [],
+      localizations: {
+        es: localization("es", "laboratorio", "Laboratorio"),
+        en: localization("en", "laboratory", "Laboratory"),
+      },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    expect(normalized.localizations.en?.slug).toBe("laboratory");
+    expect(normalized.localizations.en?.metadata.title).toBe("Laboratory");
+    expect(normalized.slug).toBe("laboratorio");
   });
 
   it("importa frontmatter Markdown, retira YAML y reescribe imágenes", async () => {
@@ -188,14 +352,28 @@ describe("content management contracts", () => {
 
   it("exige que la subcategoría pertenezca a la categoría", () => {
     const taxonomy = taxonomySchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       updatedAt: new Date().toISOString(),
       categories: [
         {
           id: "storage",
           slug: "storage",
           name: "Storage",
-          subcategories: [{ id: "s3", slug: "s3", name: "S3" }],
+          localizations: {
+            es: { slug: "storage", name: "Storage" },
+            en: { slug: "storage", name: "Storage" },
+          },
+          subcategories: [
+            {
+              id: "s3",
+              slug: "s3",
+              name: "S3",
+              localizations: {
+                es: { slug: "s3", name: "S3" },
+                en: { slug: "s3", name: "S3" },
+              },
+            },
+          ],
         },
       ],
     });
@@ -203,6 +381,61 @@ describe("content management contracts", () => {
       assertTaxonomySelection(taxonomy, "storage", "s3"),
     ).not.toThrow();
     expect(() => assertTaxonomySelection(taxonomy, "storage", "ec2")).toThrow();
+  });
+
+  it("mantiene únicos los slugs localizados de taxonomía", () => {
+    const duplicated = {
+      schemaVersion: 2,
+      updatedAt: new Date().toISOString(),
+      categories: ["one", "two"].map((id) => ({
+        id,
+        slug: id,
+        name: id,
+        localizations: {
+          es: { slug: "duplicada", name: id },
+        },
+        subcategories: [],
+      })),
+    };
+    expect(() => taxonomySchema.parse(duplicated)).toThrow(
+      "El slug de categoría ya existe en ES",
+    );
+  });
+
+  it("genera el slug localizado con el nombre completo al guardar", () => {
+    const firstEdit = updateLocalizedTaxonomyName(
+      { es: { name: "Entregable 1", slug: "entregable-1" } },
+      "en",
+      "E",
+    );
+    const completedEdit = updateLocalizedTaxonomyName(
+      firstEdit,
+      "en",
+      "Evaluation 1",
+    );
+    expect(completedEdit.en?.slug).toBe("");
+
+    expect(
+      finalizeTaxonomyLocalizations(completedEdit, "subcategory-id"),
+    ).toEqual({
+      es: { name: "Entregable 1", slug: "entregable-1" },
+      en: { name: "Evaluation 1", slug: "evaluation-1" },
+    });
+  });
+
+  it("mantiene estable un slug localizado después del primer guardado", () => {
+    const edited = updateLocalizedTaxonomyName(
+      {
+        es: { name: "Laboratorios", slug: "laboratorios" },
+        en: { name: "Labs", slug: "labs" },
+      },
+      "en",
+      "AWS Labs",
+    );
+    expect(finalizeTaxonomyLocalizations(edited, "category-id").en).toEqual({
+      name: "AWS Labs",
+      slug: "labs",
+    });
   });
 
   it("normaliza ETags HTTP antes de comparar versiones", () => {

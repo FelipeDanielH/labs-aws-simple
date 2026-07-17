@@ -10,6 +10,7 @@ import {
   useActiveLaboratoryHeading,
 } from "./laboratory-table-of-contents";
 import type { MarkdownTableOfContentsItem } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
+import { messages } from "@/shared/config/translations";
 
 export type LaboratoryNavigationItem = {
   id: string;
@@ -25,6 +26,7 @@ export function LaboratoryDetailShell({
   laboratories,
   subcategoryName,
   tableOfContents,
+  locale,
 }: {
   backHref: string;
   categoryName: string;
@@ -33,7 +35,9 @@ export function LaboratoryDetailShell({
   laboratories: LaboratoryNavigationItem[];
   subcategoryName?: string;
   tableOfContents: MarkdownTableOfContentsItem[];
+  locale: "es" | "en";
 }) {
+  const copy = messages[locale].laboratoryDetail;
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const { activeId, setActiveId } = useActiveLaboratoryHeading(tableOfContents);
   const hasTableOfContents = tableOfContents.length > 0;
@@ -63,7 +67,7 @@ export function LaboratoryDetailShell({
               >
                 <p className="truncate font-semibold">{categoryName}</p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {subcategoryName ?? "Laboratorios"}
+                  {subcategoryName ?? copy.laboratories}
                 </p>
               </Link>
             ) : null}
@@ -72,7 +76,7 @@ export function LaboratoryDetailShell({
               type="button"
               aria-controls="laboratory-sidebar-navigation"
               aria-expanded={isSidebarOpen}
-              aria-label={isSidebarOpen ? "Contraer menú" : "Expandir menú"}
+              aria-label={isSidebarOpen ? copy.collapseMenu : copy.expandMenu}
               onClick={() => setIsSidebarOpen((value) => !value)}
               className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -87,11 +91,11 @@ export function LaboratoryDetailShell({
           {isSidebarOpen ? (
             <nav
               id="laboratory-sidebar-navigation"
-              aria-label="Laboratorios de esta sección"
+              aria-label={copy.sectionAriaLabel}
               className="p-3"
             >
               <p className="px-3 py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Laboratorios
+                {copy.laboratories}
               </p>
               <ul className="space-y-1">
                 {laboratories.map((laboratory) => {
@@ -100,7 +104,7 @@ export function LaboratoryDetailShell({
                   return (
                     <li key={laboratory.id}>
                       <Link
-                        href={`/laboratorios/${laboratory.slug}`}
+                        href={`/${locale}/laboratorios/${laboratory.slug}`}
                         aria-current={isCurrent ? "page" : undefined}
                         className={
                           isCurrent
@@ -122,12 +126,13 @@ export function LaboratoryDetailShell({
           {hasTableOfContents ? (
             <details className="mb-5 w-full rounded-xl border bg-card p-4 xl:hidden">
               <summary className="cursor-pointer text-sm font-semibold">
-                En esta página
+                {copy.onThisPage}
               </summary>
               <div className="mt-3">
                 <LaboratoryTableOfContents
                   activeId={activeId}
                   items={tableOfContents}
+                  label={copy.onThisPage}
                   onNavigate={setActiveId}
                 />
               </div>
@@ -144,6 +149,7 @@ export function LaboratoryDetailShell({
               <LaboratoryTableOfContents
                 activeId={activeId}
                 items={tableOfContents}
+                label={copy.onThisPage}
                 onNavigate={setActiveId}
                 windowed
               />

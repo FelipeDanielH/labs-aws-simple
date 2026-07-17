@@ -12,8 +12,17 @@ export async function adminRequest<T>(
   });
   const body = (await response.json().catch(() => ({}))) as {
     error?: string;
+    issues?: Array<{ message?: string }>;
   } & T;
-  if (!response.ok)
-    throw new Error(body.error ?? "La operación no pudo completarse.");
+  if (!response.ok) {
+    const issueMessage = body.issues
+      ?.map((issue) => issue.message)
+      .filter((message): message is string => Boolean(message))
+      .filter((message, index, messages) => messages.indexOf(message) === index)
+      .join(" ");
+    throw new Error(
+      issueMessage || body.error || "La operación no pudo completarse.",
+    );
+  }
   return body;
 }

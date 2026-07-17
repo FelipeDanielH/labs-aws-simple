@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   contentPaths,
+  canonicalDocumentKey,
   createShortId,
   normalizeRelativeAssetPath,
   slugify,
@@ -13,6 +14,7 @@ import {
 } from "@/features/content-management/server/admin-session";
 import { apiError } from "@/features/content-management/server/http";
 import { signImportIntent } from "@/features/content-management/server/import-intent";
+import { getContentRepository } from "@/features/content-management/server/container";
 
 const schema = z
   .object({
@@ -57,6 +59,25 @@ const schema = z
     }
   });
 
+export async function GET(request: Request) {
+  try {
+    await requireAdminSession();
+    const fileName = new URL(request.url).searchParams.get("fileName");
+    if (!fileName) {
+      return NextResponse.json({ existingDocumentId: null });
+    }
+    const canonicalKey = canonicalDocumentKey(fileName);
+    const existing = (await getContentRepository().list()).find(
+      ({ manifest }) => manifest.canonicalKey === canonicalKey,
+    );
+    return NextResponse.json({
+      existingDocumentId: existing?.manifest.id ?? null,
+    });
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
@@ -64,6 +85,19 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     const id = createShortId();
     const slug = slugify(input.originalFileName);
+    const canonicalKey = canonicalDocumentKey(input.originalFileName);
+    const existing = (await getContentRepository().list()).find(
+      ({ manifest }) => manifest.canonicalKey === canonicalKey,
+    );
+    if (existing) {
+      return NextResponse.json(
+        {
+          error: "Ya existe un laboratorio asociado a ese archivo.",
+          existingDocumentId: existing.manifest.id,
+        },
+        { status: 409 },
+      );
+    }
     const folder = contentPaths.documentFolder(slug, id);
     const assets = input.assets.map((asset) => {
       const relativePath =
@@ -86,6 +120,7 @@ export async function POST(request: Request) {
       id,
       slug,
       folder,
+      canonicalKey,
       originalFileName: input.originalFileName,
       allowedPathnames: assets.map((asset) => asset.pathname),
     });

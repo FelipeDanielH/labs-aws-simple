@@ -4,9 +4,15 @@ export const contentPaths = {
   root: ROOT,
   documents: `${ROOT}/documents/`,
   taxonomy: `${ROOT}/system/taxonomy.json`,
-  catalogs: `${ROOT}/system/public-catalog-`,
-  catalogVersion(generationId: string) {
-    return `${ROOT}/system/public-catalog-${generationId}.json`;
+  taxonomyV2: `${ROOT}/system/taxonomy/manifest.json`,
+  taxonomyLocaleVersion(locale: "es" | "en", generationId: string) {
+    return `${ROOT}/system/taxonomy/${locale}/taxonomy-${generationId}.json`;
+  },
+  catalogs(locale: "es" | "en") {
+    return `${ROOT}/system/catalog/${locale}/public-catalog-`;
+  },
+  catalogVersion(locale: "es" | "en", generationId: string) {
+    return `${ROOT}/system/catalog/${locale}/public-catalog-${generationId}.json`;
   },
   documentFolder(slug: string, id: string) {
     return `${ROOT}/documents/${slug}-${id}`;
@@ -20,10 +26,15 @@ export const contentPaths = {
   html(folder: string, generationId: string) {
     return `${folder}/document-${generationId}.html`;
   },
-  content(folder: string, generationId: string, kind: "markdown" | "html") {
+  content(
+    folder: string,
+    locale: "es" | "en",
+    generationId: string,
+    kind: "markdown" | "html",
+  ) {
     return kind === "html"
-      ? `${folder}/document-${generationId}.html`
-      : `${folder}/document-${generationId}.md`;
+      ? `${folder}/${locale}/document-${generationId}.html`
+      : `${folder}/${locale}/document-${generationId}.md`;
   },
   asset(folder: string, relativePath: string) {
     return `${folder}/assets/${relativePath}`;
@@ -31,7 +42,14 @@ export const contentPaths = {
   image(folder: string, name: string) {
     return `${folder}/images/${name}`;
   },
+  duplicateKey(canonicalKey: string) {
+    return `${ROOT}/system/document-keys/${slugify(canonicalKey)}.json`;
+  },
 };
+
+export function canonicalDocumentKey(fileName: string): string {
+  return slugify(fileName);
+}
 
 export function slugify(value: string): string {
   const slug = value

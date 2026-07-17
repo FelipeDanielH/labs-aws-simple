@@ -9,6 +9,7 @@ import { SelectField } from "@workspace/ui/components/select-field";
 import { Settings } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import {
   defaultTheme,
@@ -18,7 +19,9 @@ import {
   type AppTheme,
 } from "@/shared/config/preferences";
 import { messages } from "@/shared/config/translations";
+import { useActiveLocale } from "@/shared/hooks/use-active-locale";
 import { usePreferencesStore } from "@/shared/store/preferences-store";
+import { localeCookieName } from "@/shared/config/locale-routing";
 
 const subscribe = () => () => undefined;
 
@@ -29,9 +32,11 @@ export function PreferencesMenu() {
     () => false,
   );
   const { theme, setTheme } = useTheme();
-  const locale = usePreferencesStore((state) => state.locale);
+  const locale = useActiveLocale();
   const hasHydrated = usePreferencesStore((state) => state.hasHydrated);
   const setLocale = usePreferencesStore((state) => state.setLocale);
+  const pathname = usePathname();
+  const router = useRouter();
   const copy = messages[locale];
 
   return (
@@ -58,7 +63,30 @@ export function PreferencesMenu() {
               label: copy.languages[value],
             }))}
             value={locale}
-            onChange={(value) => setLocale(value as AppLocale)}
+            onChange={(value) => {
+              const nextLocale = value as AppLocale;
+              setLocale(nextLocale);
+              document.cookie = `${localeCookieName}=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
+              const segments = pathname.split("/");
+              if (segments[1] === "es" || segments[1] === "en") {
+                segments[1] = nextLocale;
+                const alternate = document.getElementById(
+                  "locale-route-alternates",
+                )?.dataset[nextLocale];
+                if (
+                  alternate &&
+                  segments[2] === "laboratorios" &&
+                  segments[3]
+                ) {
+                  segments[3] = alternate;
+                }
+                router.push(segments.join("/") || `/${nextLocale}`);
+              } else {
+                router.push(
+                  `/${nextLocale}${pathname === "/" ? "" : pathname}`,
+                );
+              }
+            }}
             disabled={!hasHydrated}
             compact
           />

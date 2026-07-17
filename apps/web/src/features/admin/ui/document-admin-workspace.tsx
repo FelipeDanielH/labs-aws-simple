@@ -7,12 +7,18 @@ import {
   injectControlledBase,
   processHtmlContent,
 } from "@/features/content-management/application/html-content";
+import { markdownLocalAssetReferences } from "@/features/content-management/application/markdown-content";
 
 import {
   createShortId,
   slugify,
 } from "@/features/content-management/application/document-paths";
 import { cleanupRemainingMinutes } from "@/features/content-management/application/document-retention";
+import { resolveSharedAssetReferences } from "@/features/content-management/application/shared-asset-localization";
+import {
+  finalizeTaxonomyLocalizations,
+  updateLocalizedTaxonomyName,
+} from "@/features/content-management/application/taxonomy-localization";
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
 import type {
   Category,
@@ -98,7 +104,11 @@ export function DocumentAdminWorkspace() {
     }
   }
 
-  async function transition(document: VersionedManifest, action: string) {
+  async function transition(
+    document: VersionedManifest,
+    action: string,
+    locale: "es" | "en" = "es",
+  ) {
     if (action === "cleanup") {
       const remainingMinutes = cleanupRemainingMinutes(
         document.manifest.updatedAt,
@@ -129,7 +139,7 @@ export function DocumentAdminWorkspace() {
       if (action === "cleanup") {
         const result = await adminRequest<DocumentCleanupResult>(url, {
           method: "POST",
-          body: JSON.stringify({ expectedEtag: document.etag }),
+          body: JSON.stringify({ expectedEtag: document.etag, locale }),
         });
         window.alert(
           result.deletedFiles
@@ -149,7 +159,7 @@ export function DocumentAdminWorkspace() {
       } else {
         const updated = await adminRequest<VersionedManifest>(url, {
           method: "POST",
-          body: JSON.stringify({ expectedEtag: document.etag }),
+          body: JSON.stringify({ expectedEtag: document.etag, locale }),
         });
         setDocuments((current) => upsertDocument(current, updated));
         setDocumentCache((current) => {
@@ -234,6 +244,13 @@ export function DocumentAdminWorkspace() {
       ) : null}
       <ContentImportPanel
         taxonomy={taxonomy}
+        onExisting={async (id) => {
+          const document = await adminRequest<VersionedDocument>(
+            `/api/admin/documents/${id}`,
+          );
+          setDocumentCache((current) => ({ ...current, [id]: document }));
+          setSelected(document);
+        }}
         onCreated={(document) => {
           setDocuments((current) => upsertDocument(current, document));
           setDocumentCache((current) => ({
@@ -247,6 +264,7 @@ export function DocumentAdminWorkspace() {
         <DocumentEditor
           key={selected.etag}
           document={selected}
+          documents={documents}
           taxonomy={taxonomy}
           onClose={() => setSelected(null)}
           onSaved={(document) => {
@@ -280,6 +298,7 @@ export function DocumentAdminWorkspace() {
 function ContentImportPanel(props: {
   taxonomy: Taxonomy;
   onCreated: (document: VersionedDocument) => void;
+  onExisting: (id: string) => void;
 }) {
   const [tab, setTab] = useState<"docx" | "markdown" | "html">("docx");
   return (
@@ -323,9 +342,11 @@ function ContentImportPanel(props: {
 function DocxImportPanel({
   taxonomy,
   onCreated,
+  onExisting,
 }: {
   taxonomy: Taxonomy;
   onCreated: (document: VersionedDocument) => void;
+  onExisting: (id: string) => void;
 }) {
   const converter = useMemo(() => new MammothDocxConverter(), []);
   const [file, setFile] = useState<File | null>(null);
@@ -337,12 +358,29 @@ function DocxImportPanel({
   const [extraJson, setExtraJson] = useState("{}");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [activeLocale, setActiveLocale] = useState<"es" | "en">("es");
+  const [englishDraft, setEnglishDraft] = useState<TranslationDraft | null>(
+    null,
+  );
+  const [includeEnglish, setIncludeEnglish] = useState(false);
 
   async function selectFile(selected: File | undefined) {
     if (!selected) return;
     setBusy(true);
     setError("");
     try {
+      const duplicate = await adminRequest<{
+        existingDocumentId: string | null;
+      }>(
+        `/api/admin/import-intents?fileName=${encodeURIComponent(selected.name)}`,
+      );
+      if (duplicate.existingDocumentId) {
+        setError(
+          "Ese laboratorio ya existe. Se abrió su edición para agregar o reemplazar idiomas.",
+        );
+        onExisting(duplicate.existingDocumentId);
+        return;
+      }
       const result = await converter.convert(selected);
       setFile(selected);
       setConverted(result);
@@ -412,17 +450,48 @@ function DocxImportPanel({
           };
         }),
       );
+      const englishSource =
+        includeEnglish && englishDraft
+          ? resolveSharedAssetReferences(
+              englishDraft.source,
+              englishDraft.assets,
+              converted.assets.map((asset) => ({
+                index: asset.index,
+                sha256: asset.sha256,
+                relativePath: `images/image-${asset.index + 1}.${asset.extension}`,
+                placeholder: `__DOCX_ASSET_${asset.index}__`,
+              })),
+              uploaded,
+            )
+          : null;
       const document = await adminRequest<VersionedDocument>(
         "/api/admin/documents",
         {
           method: "POST",
           body: JSON.stringify({
             intentToken: intent.intentToken,
-            originalFileName: file.name,
-            contentKind: "docx",
-            source: markdownSource,
+            variants: [
+              {
+                locale: "es",
+                originalFileName: file.name,
+                contentKind: "docx",
+                source: markdownSource,
+                metadata: localizedMetadata({ ...metadata, extra }),
+              },
+              ...(includeEnglish && englishDraft && englishSource
+                ? [
+                    {
+                      locale: "en" as const,
+                      originalFileName: englishDraft.fileName,
+                      contentKind: englishDraft.kind,
+                      source: englishSource,
+                      metadata: localizedMetadata(englishDraft.metadata),
+                    },
+                  ]
+                : []),
+            ],
             assets: uploaded,
-            metadata: { ...metadata, extra },
+            order: metadata.order,
             categoryId,
             subcategoryId,
           }),
@@ -433,6 +502,9 @@ function DocxImportPanel({
       setMarkdownSource("");
       setMetadata(emptyMetadata);
       setExtraJson("{}");
+      setEnglishDraft(null);
+      setIncludeEnglish(false);
+      setActiveLocale("es");
       onCreated(document);
     } catch (caught) {
       setError(messageOf(caught));
@@ -464,43 +536,75 @@ function DocxImportPanel({
       ) : null}
       {converted ? (
         <div className="space-y-5">
-          {converted.warnings.length ? (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-              <strong>Advertencias de conversión</strong>
-              <ul className="mt-2 list-disc pl-5">
-                {converted.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <MetadataFields
-            metadata={metadata}
-            onChange={setMetadata}
-            taxonomy={taxonomy}
-            categoryId={categoryId}
-            subcategoryId={subcategoryId}
-            onCategoryChange={(value) => {
-              setCategoryId(value);
-              setSubcategoryId(null);
+          <LanguageTabs
+            active={activeLocale}
+            hasEnglish={includeEnglish}
+            onChange={setActiveLocale}
+            onAddLocale={() => {
+              setIncludeEnglish(true);
+              setActiveLocale("en");
             }}
-            onSubcategoryChange={setSubcategoryId}
-            extraJson={extraJson}
-            onExtraJsonChange={setExtraJson}
           />
-          <div className="grid gap-5 lg:grid-cols-2">
-            <textarea
-              aria-label="Contenido Markdown"
-              value={markdownSource}
-              onChange={(event) => setMarkdownSource(event.target.value)}
-              className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
+          {activeLocale === "es" ? (
+            <>
+              {converted.warnings.length ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                  <strong>Advertencias de conversión</strong>
+                  <ul className="mt-2 list-disc pl-5">
+                    {converted.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <MetadataFields
+                metadata={metadata}
+                onChange={setMetadata}
+                taxonomy={taxonomy}
+                categoryId={categoryId}
+                subcategoryId={subcategoryId}
+                onCategoryChange={(value) => {
+                  setCategoryId(value);
+                  setSubcategoryId(null);
+                }}
+                onSubcategoryChange={setSubcategoryId}
+                extraJson={extraJson}
+                onExtraJsonChange={setExtraJson}
+              />
+              <div className="grid gap-5 lg:grid-cols-2">
+                <textarea
+                  aria-label="Contenido Markdown"
+                  value={markdownSource}
+                  onChange={(event) => setMarkdownSource(event.target.value)}
+                  className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
+                />
+                <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
+                  <MarkdownRenderer source={markdownSource} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <TranslationDraftPanel
+              value={englishDraft}
+              onChange={setEnglishDraft}
+              sharedAssets={converted.assets.map((asset) => ({
+                index: asset.index,
+                sha256: asset.sha256,
+                relativePath: `images/image-${asset.index + 1}.${asset.extension}`,
+                placeholder: `__DOCX_ASSET_${asset.index}__`,
+              }))}
             />
-            <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
-              <MarkdownRenderer source={markdownSource} />
-            </div>
-          </div>
+          )}
           <button
-            disabled={busy || !metadata.title.trim() || !markdownSource.trim()}
+            disabled={
+              busy ||
+              !metadata.title.trim() ||
+              !markdownSource.trim() ||
+              (includeEnglish &&
+                (!englishDraft?.source.trim() ||
+                  !englishDraft.metadata.title.trim() ||
+                  Boolean(englishDraft.validationError)))
+            }
             onClick={saveDraft}
             className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
           >
@@ -518,16 +622,19 @@ function DirectImportPanel({
   kind,
   taxonomy,
   onCreated,
+  onExisting,
 }: {
   kind: "markdown" | "html";
   taxonomy: Taxonomy;
   onCreated: (document: VersionedDocument) => void;
+  onExisting: (id: string) => void;
 }) {
   const [source, setSource] = useState("");
   const [fileName, setFileName] = useState(
     kind === "markdown" ? "nuevo.md" : "documento.html",
   );
   const [assetFiles, setAssetFiles] = useState<File[]>([]);
+  const [sharedAssets, setSharedAssets] = useState<TranslationAsset[]>([]);
   const [metadata, setMetadata] = useState<DocumentMetadata>(emptyMetadata);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
@@ -535,6 +642,11 @@ function DirectImportPanel({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [activeLocale, setActiveLocale] = useState<"es" | "en">("es");
+  const [englishDraft, setEnglishDraft] = useState<TranslationDraft | null>(
+    null,
+  );
+  const [includeEnglish, setIncludeEnglish] = useState(false);
 
   async function prepare(currentSource = source, currentFiles = assetFiles) {
     return kind === "html"
@@ -546,6 +658,16 @@ function DirectImportPanel({
     if (!file) return;
     setError("");
     try {
+      const duplicate = await adminRequest<{
+        existingDocumentId: string | null;
+      }>(`/api/admin/import-intents?fileName=${encodeURIComponent(file.name)}`);
+      if (duplicate.existingDocumentId) {
+        setError(
+          "Ese laboratorio ya existe. Se abrió su edición para agregar o reemplazar idiomas.",
+        );
+        onExisting(duplicate.existingDocumentId);
+        return;
+      }
       const text = new TextDecoder("utf-8", { fatal: true }).decode(
         await file.arrayBuffer(),
       );
@@ -557,6 +679,14 @@ function DirectImportPanel({
           : await prepareMarkdownContent(text, file.name, assetFiles);
       setSource(result.source);
       setWarnings(result.warnings);
+      setSharedAssets(
+        result.assets.map((asset, index) => ({
+          index,
+          sha256: asset.sha256,
+          relativePath: asset.relativePath,
+          placeholder: null,
+        })),
+      );
       setMetadata((current) => ({
         ...current,
         ...result.metadata,
@@ -585,6 +715,14 @@ function DirectImportPanel({
           : await prepareMarkdownContent(source, fileName, selected);
       setSource(result.source);
       setWarnings(result.warnings);
+      setSharedAssets(
+        result.assets.map((asset, index) => ({
+          index,
+          sha256: asset.sha256,
+          relativePath: asset.relativePath,
+          placeholder: null,
+        })),
+      );
       setMetadata((current) => ({
         ...current,
         ...result.metadata,
@@ -636,17 +774,48 @@ function DirectImportPanel({
         intent.assets,
         intent.intentToken,
       );
+      const englishSource =
+        includeEnglish && englishDraft
+          ? resolveSharedAssetReferences(
+              englishDraft.source,
+              englishDraft.assets,
+              prepared.assets.map((asset, index) => ({
+                index,
+                sha256: asset.sha256,
+                relativePath: asset.relativePath,
+                placeholder: null,
+              })),
+              uploaded,
+            )
+          : null;
       const document = await adminRequest<VersionedDocument>(
         "/api/admin/documents",
         {
           method: "POST",
           body: JSON.stringify({
             intentToken: intent.intentToken,
-            originalFileName: fileName,
-            contentKind: kind,
-            source: prepared.source,
+            variants: [
+              {
+                locale: "es",
+                originalFileName: fileName,
+                contentKind: kind,
+                source: prepared.source,
+                metadata: localizedMetadata(normalizedMetadata),
+              },
+              ...(includeEnglish && englishDraft && englishSource
+                ? [
+                    {
+                      locale: "en" as const,
+                      originalFileName: englishDraft.fileName,
+                      contentKind: englishDraft.kind,
+                      source: englishSource,
+                      metadata: localizedMetadata(englishDraft.metadata),
+                    },
+                  ]
+                : []),
+            ],
             assets: uploaded,
-            metadata: normalizedMetadata,
+            order: normalizedMetadata.order,
             categoryId,
             subcategoryId,
           }),
@@ -654,9 +823,13 @@ function DirectImportPanel({
       );
       setSource("");
       setAssetFiles([]);
+      setSharedAssets([]);
       setMetadata(emptyMetadata);
       setExtraJson("{}");
       setWarnings([]);
+      setEnglishDraft(null);
+      setIncludeEnglish(false);
+      setActiveLocale("es");
       onCreated(document);
     } catch (caught) {
       setError(messageOf(caught));
@@ -717,64 +890,94 @@ function DirectImportPanel({
           />
         </Field>
       </div>
-      <MetadataFields
-        metadata={metadata}
-        onChange={setMetadata}
-        taxonomy={taxonomy}
-        categoryId={categoryId}
-        subcategoryId={subcategoryId}
-        onCategoryChange={(value) => {
-          setCategoryId(value);
-          setSubcategoryId(null);
+      <LanguageTabs
+        active={activeLocale}
+        hasEnglish={includeEnglish}
+        onChange={setActiveLocale}
+        onAddLocale={() => {
+          setIncludeEnglish(true);
+          setActiveLocale("en");
         }}
-        onSubcategoryChange={setSubcategoryId}
-        extraJson={extraJson}
-        onExtraJsonChange={setExtraJson}
       />
-      {visibleWarnings.length ? (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <strong>Elementos ajustados por seguridad</strong>
-          <ul className="mt-2 list-disc pl-5">
-            {visibleWarnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <textarea
-          aria-label={kind === "html" ? "Código HTML" : "Contenido Markdown"}
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          placeholder={
-            kind === "markdown" ? "# Título\n\nContenido…" : "<!doctype html>…"
-          }
-          className="min-h-[30rem] rounded-xl border bg-background p-4 font-mono text-sm"
-        />
-        {kind === "markdown" ? (
-          <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
-            <MarkdownRenderer source={source} />
-          </div>
-        ) : (
-          <iframe
-            title="Vista previa HTML aislada"
-            sandbox=""
-            srcDoc={htmlPreview}
-            className="min-h-[30rem] w-full rounded-xl border bg-white"
+      {activeLocale === "es" ? (
+        <>
+          <MetadataFields
+            metadata={metadata}
+            onChange={setMetadata}
+            taxonomy={taxonomy}
+            categoryId={categoryId}
+            subcategoryId={subcategoryId}
+            onCategoryChange={(value) => {
+              setCategoryId(value);
+              setSubcategoryId(null);
+            }}
+            onSubcategoryChange={setSubcategoryId}
+            extraJson={extraJson}
+            onExtraJsonChange={setExtraJson}
           />
-        )}
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {assetFiles.length} recurso{assetFiles.length === 1 ? "" : "s"}{" "}
-        seleccionado{assetFiles.length === 1 ? "" : "s"}.
-      </p>
+          {visibleWarnings.length ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <strong>Elementos ajustados por seguridad</strong>
+              <ul className="mt-2 list-disc pl-5">
+                {visibleWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <textarea
+              aria-label={
+                kind === "html" ? "Código HTML" : "Contenido Markdown"
+              }
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              placeholder={
+                kind === "markdown"
+                  ? "# Título\n\nContenido…"
+                  : "<!doctype html>…"
+              }
+              className="min-h-[30rem] rounded-xl border bg-background p-4 font-mono text-sm"
+            />
+            {kind === "markdown" ? (
+              <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
+                <MarkdownRenderer source={source} />
+              </div>
+            ) : (
+              <iframe
+                title="Vista previa HTML aislada"
+                sandbox=""
+                srcDoc={htmlPreview}
+                className="min-h-[30rem] w-full rounded-xl border bg-white"
+              />
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {assetFiles.length} recurso{assetFiles.length === 1 ? "" : "s"}{" "}
+            seleccionado{assetFiles.length === 1 ? "" : "s"}.
+          </p>
+        </>
+      ) : (
+        <TranslationDraftPanel
+          value={englishDraft}
+          onChange={setEnglishDraft}
+          sharedAssets={sharedAssets}
+        />
+      )}
       {error ? (
         <p role="alert" className="text-destructive">
           {error}
         </p>
       ) : null}
       <button
-        disabled={busy || !source.trim()}
+        disabled={
+          busy ||
+          !source.trim() ||
+          (includeEnglish &&
+            (!englishDraft?.source.trim() ||
+              !englishDraft.metadata.title.trim() ||
+              Boolean(englishDraft.validationError)))
+        }
         onClick={saveDraft}
         className="button-primary disabled:opacity-60"
       >
@@ -824,13 +1027,457 @@ async function uploadDirectAssets(
   );
 }
 
+type TranslationAsset = {
+  index: number;
+  sha256: string;
+  relativePath: string;
+  placeholder: string | null;
+};
+
+type TranslationDraft = {
+  kind: "docx" | "markdown" | "html";
+  fileName: string;
+  source: string;
+  metadata: DocumentMetadata;
+  warnings: string[];
+  assets: TranslationAsset[];
+  validationError: string | null;
+};
+
+function normalizeAssetReference(value: string): string {
+  return value
+    .split(/[?#]/u)[0]
+    .replaceAll("\\", "/")
+    .replace(/^\.\//u, "")
+    .replace(/^assets\//u, "");
+}
+
+function fileNameForTitle(
+  title: string,
+  kind: TranslationDraft["kind"],
+): string {
+  if (!title.trim()) return "";
+  const base = slugify(title.trim());
+  return `${base}.${kind === "html" ? "html" : "md"}`;
+}
+
+function LanguageTabs({
+  active,
+  hasEnglish,
+  onAddLocale,
+  onChange,
+}: {
+  active: "es" | "en";
+  hasEnglish: boolean;
+  onAddLocale: (locale: "en") => void;
+  onChange: (locale: "es" | "en") => void;
+}) {
+  const [selectingLocale, setSelectingLocale] = useState(false);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === "es"}
+        onClick={() => onChange("es")}
+        className={active === "es" ? "button-primary" : "button-secondary"}
+      >
+        Español
+      </button>
+      {hasEnglish ? (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === "en"}
+          onClick={() => onChange("en")}
+          className={active === "en" ? "button-primary" : "button-secondary"}
+        >
+          Inglés
+        </button>
+      ) : (
+        <>
+          {selectingLocale ? (
+            <label className="flex items-center gap-2 text-sm">
+              <span>Idioma a agregar</span>
+              <select
+                autoFocus
+                defaultValue=""
+                className="input min-w-44"
+                onChange={(event) => {
+                  if (event.target.value === "en") onAddLocale("en");
+                }}
+              >
+                <option value="" disabled>
+                  Selecciona un idioma
+                </option>
+                <option value="en">Inglés</option>
+              </select>
+            </label>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSelectingLocale(true)}
+              className="button-secondary"
+            >
+              + Agregar otro idioma
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TranslationDraftPanel({
+  value,
+  onChange,
+  sharedAssets = [],
+  sharedBaseUrl,
+  reservedSlugs = [],
+}: {
+  value: TranslationDraft | null;
+  onChange: (value: TranslationDraft) => void;
+  sharedAssets?: TranslationAsset[];
+  sharedBaseUrl?: string | null;
+  reservedSlugs?: string[];
+}) {
+  const converter = useMemo(() => new MammothDocxConverter(), []);
+  const [draft, setDraft] = useState<TranslationDraft>(
+    value ?? {
+      kind: "docx",
+      fileName: "",
+      source: "",
+      metadata: emptyMetadata,
+      warnings: [],
+      assets: [],
+      validationError: null,
+    },
+  );
+  const [createFile, setCreateFile] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => onChange(draft), [draft, onChange]);
+
+  function validateSource(
+    kind: TranslationDraft["kind"],
+    source: string,
+  ): string | null {
+    if (kind === "docx" || !source.trim()) return null;
+    try {
+      const references =
+        kind === "html"
+          ? processHtmlContent(source).localReferences
+          : markdownLocalAssetReferences(source);
+      const available = new Set(
+        sharedAssets.map((asset) =>
+          normalizeAssetReference(asset.relativePath),
+        ),
+      );
+      const missing = references.filter(
+        (reference) => !available.has(normalizeAssetReference(reference)),
+      );
+      return missing.length
+        ? `No se encontraron estos recursos en la versión en español: ${missing.join(", ")}`
+        : null;
+    } catch (caught) {
+      return messageOf(caught);
+    }
+  }
+
+  function duplicateError(fileName: string): string | null {
+    if (!fileName.trim()) return null;
+    const nextSlug = slugify(fileName);
+    return reservedSlugs.includes(nextSlug)
+      ? "Ya existe una versión en inglés con ese nombre."
+      : null;
+  }
+
+  async function loadFile(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (draft.kind === "docx") {
+        const converted = await converter.convert(file);
+        setDraft((current) => ({
+          ...current,
+          fileName: file.name,
+          source: converted.markdown,
+          metadata: {
+            ...current.metadata,
+            title: file.name.replace(/\.docx$/i, ""),
+          },
+          warnings: converted.warnings,
+          assets: converted.assets.map((asset) => ({
+            index: asset.index,
+            sha256: asset.sha256,
+            relativePath: `image-${asset.index + 1}.${asset.extension}`,
+            placeholder: `__DOCX_ASSET_${asset.index}__`,
+          })),
+          validationError: duplicateError(file.name),
+        }));
+      } else {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(
+          await file.arrayBuffer(),
+        );
+        const processed =
+          draft.kind === "html" ? processHtmlContent(text) : null;
+        setDraft((current) => ({
+          ...current,
+          fileName: file.name,
+          source: processed?.html ?? text,
+          metadata: {
+            ...current.metadata,
+            title: file.name.replace(/\.(?:md|markdown|html?)$/i, ""),
+          },
+          warnings: processed?.warnings ?? [],
+          assets: [],
+          validationError:
+            duplicateError(file.name) ??
+            validateSource(draft.kind, processed?.html ?? text),
+        }));
+      }
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5 rounded-xl border p-4">
+      <div className="flex flex-wrap gap-4">
+        <Field label="Formato de la traducción">
+          <select
+            value={draft.kind}
+            onChange={(event) => {
+              const kind = event.target.value as TranslationDraft["kind"];
+              setDraft({
+                kind,
+                fileName: "",
+                source: "",
+                metadata: emptyMetadata,
+                warnings: [],
+                assets: [],
+                validationError: null,
+              });
+              setCreateFile(false);
+              setError("");
+            }}
+            className="input"
+          >
+            <option value="docx">DOCX</option>
+            <option value="markdown">Markdown</option>
+            <option value="html">HTML</option>
+          </select>
+        </Field>
+        {draft.kind !== "docx" ? (
+          <label className="flex items-center gap-2 self-end pb-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createFile}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setCreateFile(checked);
+                setError("");
+                setDraft((current) => ({
+                  ...current,
+                  fileName: checked
+                    ? fileNameForTitle(current.metadata.title, current.kind)
+                    : "",
+                  source: "",
+                  warnings: [],
+                  assets: [],
+                  validationError: null,
+                }));
+              }}
+            />
+            Crear archivo
+          </label>
+        ) : null}
+        {!createFile ? (
+          <Field label="Archivo en inglés">
+            <input
+              type="file"
+              accept={
+                draft.kind === "docx"
+                  ? ".docx"
+                  : draft.kind === "html"
+                    ? ".html,text/html"
+                    : ".md,.markdown,text/markdown"
+              }
+              disabled={busy}
+              onChange={(event) => void loadFile(event.target.files?.[0])}
+            />
+          </Field>
+        ) : (
+          <Field label="Archivo que se creará">
+            <input value={draft.fileName} readOnly className="input" />
+          </Field>
+        )}
+      </div>
+      <LocalizedMetadataFields
+        metadata={draft.metadata}
+        onChange={(metadata) => {
+          setDraft((current) => {
+            const fileName = createFile
+              ? fileNameForTitle(metadata.title, current.kind)
+              : current.fileName;
+            return {
+              ...current,
+              metadata,
+              fileName,
+              validationError:
+                duplicateError(fileName) ??
+                validateSource(current.kind, current.source),
+            };
+          });
+        }}
+      />
+      {sharedAssets.length ? (
+        <details className="rounded-lg border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Imágenes compartidas disponibles ({sharedAssets.length})
+          </summary>
+          <p className="mt-2 text-muted-foreground">
+            Usa estas mismas rutas en la traducción; no es necesario volver a
+            subir las imágenes.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {sharedAssets.map((asset) => (
+              <li
+                key={`${asset.index}-${asset.relativePath}`}
+                className="break-all font-mono"
+              >
+                {asset.relativePath}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {draft.warnings.length ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <strong>Advertencias</strong>
+          <ul className="mt-2 list-disc pl-5">
+            {draft.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <textarea
+          aria-label="Contenido en inglés"
+          value={draft.source}
+          onChange={(event) => {
+            const source = event.target.value;
+            setDraft((current) => ({
+              ...current,
+              source,
+              validationError:
+                duplicateError(current.fileName) ??
+                validateSource(current.kind, source),
+            }));
+          }}
+          className="min-h-[28rem] rounded-xl border bg-background p-4 font-mono text-sm"
+        />
+        {draft.kind === "html" ? (
+          <iframe
+            title="Vista previa HTML en inglés"
+            sandbox=""
+            srcDoc={
+              draft.source
+                ? injectControlledBase(
+                    processHtmlContent(draft.source).html,
+                    sharedBaseUrl ?? "https://preview.invalid/assets/",
+                  )
+                : ""
+            }
+            className="min-h-[28rem] w-full rounded-xl border bg-white"
+          />
+        ) : (
+          <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
+            <MarkdownRenderer
+              source={draft.source}
+              baseUrl={sharedBaseUrl ?? undefined}
+            />
+          </div>
+        )}
+      </div>
+      {draft.validationError ? (
+        <p role="alert" className="text-destructive">
+          {draft.validationError}
+        </p>
+      ) : null}
+      {error ? <p className="text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+function LocalizedMetadataFields({
+  metadata,
+  onChange,
+}: {
+  metadata: DocumentMetadata;
+  onChange: (value: DocumentMetadata) => void;
+}) {
+  const update = <K extends keyof DocumentMetadata>(
+    key: K,
+    value: DocumentMetadata[K],
+  ) => onChange({ ...metadata, [key]: value });
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Field label="Title">
+        <input
+          value={metadata.title}
+          onChange={(event) => update("title", event.target.value)}
+          className="input"
+        />
+      </Field>
+      <Field label="Author">
+        <input
+          value={metadata.author}
+          onChange={(event) => update("author", event.target.value)}
+          className="input"
+        />
+      </Field>
+      <Field label="Summary">
+        <textarea
+          value={metadata.summary}
+          onChange={(event) => update("summary", event.target.value)}
+          className="input min-h-20"
+        />
+      </Field>
+      <Field label="Tags">
+        <input
+          value={metadata.tags.join(", ")}
+          onChange={(event) =>
+            update(
+              "tags",
+              event.target.value
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            )
+          }
+          className="input"
+        />
+      </Field>
+    </div>
+  );
+}
+
 function DocumentEditor({
   document,
+  documents,
   taxonomy,
   onClose,
   onSaved,
 }: {
   document: VersionedDocument;
+  documents: VersionedManifest[];
   taxonomy: Taxonomy;
   onClose: () => void;
   onSaved: (document: VersionedDocument) => void;
@@ -846,6 +1493,10 @@ function DocumentEditor({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [activeLocale, setActiveLocale] = useState<"es" | "en">("es");
+  const [englishEnabled, setEnglishEnabled] = useState(
+    Boolean(document.manifest.localizations.en),
+  );
   const dirty =
     source !== document.source ||
     JSON.stringify(metadata) !== JSON.stringify(document.manifest.metadata) ||
@@ -870,8 +1521,13 @@ function DocumentEditor({
         {
           method: "PUT",
           body: JSON.stringify({
+            locale: "es",
             source,
-            metadata: { ...metadata, extra: JSON.parse(extraJson) },
+            metadata: localizedMetadata({
+              ...metadata,
+              extra: JSON.parse(extraJson),
+            }),
+            order: metadata.order,
             categoryId,
             subcategoryId,
             expectedEtag: document.etag,
@@ -902,6 +1558,262 @@ function DocumentEditor({
           Cerrar
         </button>
       </div>
+      <LanguageTabs
+        active={activeLocale}
+        hasEnglish={englishEnabled}
+        onChange={setActiveLocale}
+        onAddLocale={() => {
+          setEnglishEnabled(true);
+          setActiveLocale("en");
+        }}
+      />
+      {englishEnabled ? (
+        <div hidden={activeLocale !== "en"}>
+          <EnglishDocumentEditor
+            document={document}
+            taxonomy={taxonomy}
+            reservedSlugs={documents
+              .filter((item) => item.manifest.id !== document.manifest.id)
+              .flatMap((item) => {
+                const slug = item.manifest.localizations.en?.slug;
+                return slug ? [slug] : [];
+              })}
+            onSaved={onSaved}
+          />
+        </div>
+      ) : null}
+      <div hidden={activeLocale !== "es"} className="space-y-5">
+        <MetadataFields
+          metadata={metadata}
+          onChange={setMetadata}
+          taxonomy={taxonomy}
+          categoryId={categoryId}
+          subcategoryId={subcategoryId}
+          onCategoryChange={(value) => {
+            setCategoryId(value);
+            setSubcategoryId(null);
+          }}
+          onSubcategoryChange={setSubcategoryId}
+          extraJson={extraJson}
+          onExtraJsonChange={setExtraJson}
+        />
+        {document.manifest.assets.length ? (
+          <details className="rounded-xl border p-4">
+            <summary className="cursor-pointer font-medium">
+              Recursos asociados ({document.manifest.assets.length})
+            </summary>
+            <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+              {document.manifest.assets.map((asset) => (
+                <li key={asset.id} className="break-all font-mono">
+                  {asset.relativePath}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <div className="grid gap-5 lg:grid-cols-2">
+          <textarea
+            aria-label={
+              document.manifest.content.kind === "html" ? "HTML" : "Markdown"
+            }
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
+          />
+          {document.manifest.content.kind === "markdown" ? (
+            <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
+              <MarkdownRenderer
+                source={source}
+                baseUrl={document.manifest.content.url}
+              />
+            </div>
+          ) : (
+            <iframe
+              title="Vista previa HTML"
+              sandbox=""
+              srcDoc={injectControlledBase(
+                processHtmlContent(source).html,
+                document.manifest.content.assetBaseUrl ??
+                  document.manifest.content.url,
+              )}
+              className="min-h-[32rem] w-full rounded-xl border bg-white"
+            />
+          )}
+        </div>
+        {error ? (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <button
+          disabled={busy || !dirty}
+          onClick={save}
+          className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {busy ? "Guardando…" : "Guardar cambios"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function EnglishDocumentEditor({
+  document,
+  taxonomy,
+  reservedSlugs,
+  onSaved,
+}: {
+  document: VersionedDocument;
+  taxonomy: Taxonomy;
+  reservedSlugs: string[];
+  onSaved: (document: VersionedDocument) => void;
+}) {
+  const existing = document.manifest.localizations.en;
+  const [draft, setDraft] = useState<TranslationDraft | null>(null);
+  const [source, setSource] = useState(document.sources.en ?? "");
+  const [metadata, setMetadata] = useState<DocumentMetadata>(
+    existing
+      ? { ...existing.metadata, order: document.manifest.order }
+      : emptyMetadata,
+  );
+  const [categoryId, setCategoryId] = useState(document.manifest.categoryId);
+  const [subcategoryId, setSubcategoryId] = useState(
+    document.manifest.subcategoryId,
+  );
+  const [extraJson, setExtraJson] = useState(
+    JSON.stringify(existing?.metadata.extra ?? {}, null, 2),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    try {
+      let nextSource = source;
+      let nextMetadata = metadata;
+      let originalFileName: string | undefined;
+      let slug: string | undefined;
+      let contentKind: "markdown" | "html" | undefined;
+      if (!existing) {
+        if (!draft) throw new Error("Selecciona el archivo en inglés.");
+        const shared = document.manifest.assets.map((asset, index) => ({
+          index,
+          sha256: asset.sha256,
+          relativePath: asset.relativePath,
+          placeholder: null,
+        }));
+        nextSource = resolveSharedAssetReferences(
+          draft.source,
+          draft.assets,
+          shared,
+          document.manifest.assets.map((asset, index) => ({
+            index,
+            relativePath: asset.relativePath,
+            sha256: asset.sha256,
+          })),
+        );
+        nextMetadata = draft.metadata;
+        originalFileName = draft.fileName;
+        slug = slugify(draft.fileName);
+        contentKind = draft.kind === "html" ? "html" : "markdown";
+      }
+      const updated = await adminRequest<VersionedDocument>(
+        `/api/admin/documents/${document.manifest.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            locale: "en",
+            slug,
+            originalFileName,
+            contentKind,
+            source: nextSource,
+            metadata: localizedMetadata({
+              ...nextMetadata,
+              extra: existing ? JSON.parse(extraJson) : nextMetadata.extra,
+            }),
+            order: nextMetadata.order,
+            categoryId,
+            subcategoryId,
+            expectedEtag: document.etag,
+          }),
+        },
+      );
+      onSaved(updated);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm("¿Eliminar la versión en inglés?")) return;
+    setBusy(true);
+    try {
+      const updated = await adminRequest<VersionedManifest>(
+        `/api/admin/documents/${document.manifest.id}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({
+            locale: "en",
+            expectedEtag: document.etag,
+          }),
+        },
+      );
+      const spanish = document.sources.es ?? document.source;
+      onSaved({
+        ...updated,
+        sources: { es: spanish },
+        source: spanish,
+      });
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!existing) {
+    return (
+      <div className="space-y-4">
+        <TranslationDraftPanel
+          value={draft}
+          onChange={setDraft}
+          sharedAssets={document.manifest.assets.map((asset, index) => ({
+            index,
+            sha256: asset.sha256,
+            relativePath: asset.relativePath,
+            placeholder: null,
+          }))}
+          sharedBaseUrl={
+            document.manifest.localizations.es?.content.assetBaseUrl ??
+            document.manifest.localizations.es?.content.url ??
+            document.manifest.content.assetBaseUrl ??
+            document.manifest.content.url
+          }
+          reservedSlugs={reservedSlugs}
+        />
+        {error ? <p className="text-destructive">{error}</p> : null}
+        <button
+          type="button"
+          disabled={
+            busy ||
+            !draft?.source.trim() ||
+            !draft.metadata.title.trim() ||
+            Boolean(draft.validationError)
+          }
+          onClick={save}
+          className="button-primary disabled:opacity-60"
+        >
+          {busy ? "Guardando…" : "Agregar versión en inglés"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
       <MetadataFields
         metadata={metadata}
         onChange={setMetadata}
@@ -916,62 +1828,59 @@ function DocumentEditor({
         extraJson={extraJson}
         onExtraJsonChange={setExtraJson}
       />
-      {document.manifest.assets.length ? (
-        <details className="rounded-xl border p-4">
-          <summary className="cursor-pointer font-medium">
-            Recursos asociados ({document.manifest.assets.length})
-          </summary>
-          <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
-            {document.manifest.assets.map((asset) => (
-              <li key={asset.id} className="break-all font-mono">
-                {asset.relativePath}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
       <div className="grid gap-5 lg:grid-cols-2">
         <textarea
           aria-label={
-            document.manifest.content.kind === "html" ? "HTML" : "Markdown"
+            existing.content.kind === "html" ? "HTML EN" : "Markdown EN"
           }
           value={source}
           onChange={(event) => setSource(event.target.value)}
           className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
         />
-        {document.manifest.content.kind === "markdown" ? (
+        {existing.content.kind === "markdown" ? (
           <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
             <MarkdownRenderer
               source={source}
-              baseUrl={document.manifest.content.url}
+              baseUrl={existing.content.assetBaseUrl ?? existing.content.url}
             />
           </div>
         ) : (
           <iframe
-            title="Vista previa HTML"
+            title="Vista previa HTML EN"
             sandbox=""
             srcDoc={injectControlledBase(
               processHtmlContent(source).html,
-              document.manifest.content.assetBaseUrl ??
-                document.manifest.content.url,
+              existing.content.assetBaseUrl ?? existing.content.url,
             )}
             className="min-h-[32rem] w-full rounded-xl border bg-white"
           />
         )}
       </div>
-      {error ? (
-        <p role="alert" className="text-destructive">
-          {error}
-        </p>
-      ) : null}
-      <button
-        disabled={busy || !dirty}
-        onClick={save}
-        className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
-      >
-        {busy ? "Guardando…" : "Guardar cambios"}
-      </button>
-    </section>
+      {error ? <p className="text-destructive">{error}</p> : null}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy || !source.trim()}
+          onClick={save}
+          className="button-primary disabled:opacity-60"
+        >
+          {busy ? "Guardando…" : "Guardar inglés"}
+        </button>
+        <button
+          type="button"
+          disabled={busy || existing.status === "published"}
+          onClick={remove}
+          className="button-danger disabled:opacity-60"
+          title={
+            existing.status === "published"
+              ? "Despublica inglés antes de eliminarlo"
+              : undefined
+          }
+        >
+          Eliminar inglés
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1100,7 +2009,11 @@ function DocumentList({
   loading: boolean;
   onEdit: (document: VersionedManifest) => void;
   onTrash: (document: VersionedManifest) => void;
-  onAction: (document: VersionedManifest, action: string) => void;
+  onAction: (
+    document: VersionedManifest,
+    action: string,
+    locale?: "es" | "en",
+  ) => void;
 }) {
   const [status, setStatus] = useState<DocumentStatus | "all">("all");
   const [page, setPage] = useState(0);
@@ -1110,7 +2023,11 @@ function DocumentList({
     return () => window.clearInterval(interval);
   }, []);
   const filtered = documents.filter(
-    (document) => status === "all" || document.manifest.status === status,
+    (document) =>
+      status === "all" ||
+      Object.values(document.manifest.localizations).some(
+        (localization) => localization?.status === status,
+      ),
   );
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const visible = filtered.slice(page * 10, page * 10 + 10);
@@ -1149,8 +2066,10 @@ function DocumentList({
                 {document.manifest.metadata.title}
               </h3>
               <p className="text-sm text-muted-foreground">
-                {document.manifest.status} ·{" "}
-                {document.manifest.content.kind.toUpperCase()} ·{" "}
+                ES: {document.manifest.localizations.es?.status} ·{" "}
+                {document.manifest.localizations.en
+                  ? `EN: ${document.manifest.localizations.en.status} · `
+                  : "EN: pendiente · "}
                 {new Date(document.manifest.updatedAt).toLocaleString()}
               </p>
             </div>
@@ -1198,6 +2117,22 @@ function DocumentList({
                     Limpiar versiones
                   </button>
                 </>
+              ) : null}
+              {document.manifest.localizations.en?.status === "draft" ? (
+                <button
+                  onClick={() => onAction(document, "publish", "en")}
+                  className="button-primary"
+                >
+                  Publicar EN
+                </button>
+              ) : null}
+              {document.manifest.localizations.en?.status === "published" ? (
+                <button
+                  onClick={() => onAction(document, "unpublish", "en")}
+                  className="button-secondary"
+                >
+                  Despublicar EN
+                </button>
               ) : null}
               {document.manifest.status !== "trashed" ? (
                 <button
@@ -1260,6 +2195,7 @@ function TaxonomyManager({
 }) {
   const [taxonomy, setTaxonomy] = useState(value.taxonomy);
   const [error, setError] = useState("");
+  const [activeLocale, setActiveLocale] = useState<"es" | "en">("es");
   const addCategory = () =>
     setTaxonomy({
       ...taxonomy,
@@ -1269,6 +2205,12 @@ function TaxonomyManager({
           id: createShortId(),
           slug: `categoria-${taxonomy.categories.length + 1}`,
           name: "Nueva categoría",
+          localizations: {
+            es: {
+              slug: `categoria-${taxonomy.categories.length + 1}`,
+              name: "Nueva categoría",
+            },
+          },
           subcategories: [],
         },
       ],
@@ -1280,19 +2222,44 @@ function TaxonomyManager({
         category.id === id ? { ...category, ...update } : category,
       ),
     });
+  const updateCategoryLabel = (category: Category, name: string) =>
+    updateCategory(category.id, {
+      localizations: updateLocalizedTaxonomyName(
+        category.localizations,
+        activeLocale,
+        name,
+      ),
+      ...(activeLocale === "es" ? { name } : {}),
+    });
   async function save() {
     try {
       const normalized = {
         ...taxonomy,
         updatedAt: new Date().toISOString(),
-        categories: taxonomy.categories.map((category) => ({
-          ...category,
-          slug: slugify(category.name),
-          subcategories: category.subcategories.map((subcategory) => ({
-            ...subcategory,
-            slug: slugify(subcategory.name),
-          })),
-        })),
+        categories: taxonomy.categories.map((category) => {
+          const localizations = finalizeTaxonomyLocalizations(
+            category.localizations,
+            category.id,
+          );
+          return {
+            ...category,
+            name: localizations.es.name,
+            slug: localizations.es.slug,
+            localizations,
+            subcategories: category.subcategories.map((subcategory) => {
+              const subcategoryLocalizations = finalizeTaxonomyLocalizations(
+                subcategory.localizations,
+                subcategory.id,
+              );
+              return {
+                ...subcategory,
+                name: subcategoryLocalizations.es.name,
+                slug: subcategoryLocalizations.es.slug,
+                localizations: subcategoryLocalizations,
+              };
+            }),
+          };
+        }),
       };
       const result = await adminRequest<VersionedTaxonomy>(
         "/api/admin/taxonomy",
@@ -1324,13 +2291,36 @@ function TaxonomyManager({
           Añadir categoría
         </button>
       </div>
+      <div
+        className="flex gap-2"
+        role="tablist"
+        aria-label="Idioma de taxonomía"
+      >
+        {(["es", "en"] as const).map((locale) => (
+          <button
+            key={locale}
+            type="button"
+            role="tab"
+            aria-selected={activeLocale === locale}
+            onClick={() => setActiveLocale(locale)}
+            className={
+              activeLocale === locale ? "button-primary" : "button-secondary"
+            }
+          >
+            {locale === "es" ? "Español" : "English"}
+          </button>
+        ))}
+      </div>
       {taxonomy.categories.map((category) => (
         <div key={category.id} className="space-y-3 rounded-xl border p-4">
           <div className="flex gap-2">
             <input
-              value={category.name}
+              value={category.localizations[activeLocale]?.name ?? ""}
+              placeholder={
+                activeLocale === "en" ? category.localizations.es?.name : ""
+              }
               onChange={(event) =>
-                updateCategory(category.id, { name: event.target.value })
+                updateCategoryLabel(category, event.target.value)
               }
               className="input flex-1"
             />
@@ -1343,6 +2333,12 @@ function TaxonomyManager({
                       id: createShortId(),
                       slug: "subcategoria",
                       name: "Nueva subcategoría",
+                      localizations: {
+                        es: {
+                          slug: "subcategoria",
+                          name: "Nueva subcategoría",
+                        },
+                      },
                     },
                   ],
                 })
@@ -1368,12 +2364,27 @@ function TaxonomyManager({
           {category.subcategories.map((subcategory) => (
             <div key={subcategory.id} className="ml-6 flex gap-2">
               <input
-                value={subcategory.name}
+                value={subcategory.localizations[activeLocale]?.name ?? ""}
+                placeholder={
+                  activeLocale === "en"
+                    ? subcategory.localizations.es?.name
+                    : ""
+                }
                 onChange={(event) =>
                   updateCategory(category.id, {
                     subcategories: category.subcategories.map((item) =>
                       item.id === subcategory.id
-                        ? { ...item, name: event.target.value }
+                        ? {
+                            ...item,
+                            ...(activeLocale === "es"
+                              ? { name: event.target.value }
+                              : {}),
+                            localizations: updateLocalizedTaxonomyName(
+                              item.localizations,
+                              activeLocale,
+                              event.target.value,
+                            ),
+                          }
                         : item,
                     ),
                   })
@@ -1420,7 +2431,7 @@ function Field({
 }
 function emptyTaxonomy(): Taxonomy {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     categories: [],
     updatedAt: new Date(0).toISOString(),
   };
@@ -1454,4 +2465,9 @@ function upsertDocument(
   ].sort((left, right) =>
     right.manifest.updatedAt.localeCompare(left.manifest.updatedAt),
   );
+}
+
+function localizedMetadata(metadata: DocumentMetadata) {
+  const { order: _order, ...localized } = metadata;
+  return localized;
 }
