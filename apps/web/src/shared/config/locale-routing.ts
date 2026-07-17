@@ -12,6 +12,14 @@ export function isContentLocale(value: string): value is ContentLocale {
   return contentLocales.includes(value as ContentLocale);
 }
 
+export function localeFromPathname(
+  pathname: string,
+  fallback: ContentLocale = "es",
+): ContentLocale {
+  const firstSegment = pathname.split("/")[1] ?? "";
+  return isContentLocale(firstSegment) ? firstSegment : fallback;
+}
+
 export function localizeTaxonomy(
   taxonomy: Taxonomy,
   locale: ContentLocale,

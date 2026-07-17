@@ -37,6 +37,31 @@ type Messages = {
     description: string;
     emptyTitle: string;
     emptyDescription: string;
+    categoriesTitle: string;
+    categoriesAriaLabel: string;
+    allLaboratories: string;
+    resultsConnector: string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    paginationAriaLabel: string;
+    previousPage: string;
+    nextPage: string;
+    pageLabel: string;
+    perPage: string;
+    perPageAriaLabel: string;
+    noResultsTitle: string;
+    noResultsDescription: string;
+    defaultDocumentSummary: string;
+    defaultCategoryName: string;
+  };
+  laboratoryDetail: {
+    laboratories: string;
+    collapseMenu: string;
+    expandMenu: string;
+    sectionAriaLabel: string;
+    onThisPage: string;
+    notFoundTitle: string;
   };
   adminPage: {
     eyebrow: string;
@@ -90,6 +115,32 @@ export const messages = {
       emptyTitle: "Los laboratorios estarán disponibles pronto",
       emptyDescription:
         "Esta sección está preparada para conectarse con el catálogo y el buscador de contenidos.",
+      categoriesTitle: "Categorías",
+      categoriesAriaLabel: "Categorías de laboratorios",
+      allLaboratories: "Todos los laboratorios",
+      resultsConnector: "de",
+      searchLabel: "Buscar laboratorios",
+      searchPlaceholder: "Buscar por nombre",
+      clearSearch: "Limpiar búsqueda",
+      paginationAriaLabel: "Paginación de laboratorios",
+      previousPage: "Página anterior",
+      nextPage: "Página siguiente",
+      pageLabel: "Página",
+      perPage: "Por página",
+      perPageAriaLabel: "Laboratorios por página",
+      noResultsTitle: "No encontramos laboratorios",
+      noResultsDescription:
+        "No hay laboratorios cuyo nombre coincida con “{query}”.",
+      defaultDocumentSummary: "Documento de laboratorio",
+      defaultCategoryName: "Laboratorio",
+    },
+    laboratoryDetail: {
+      laboratories: "Laboratorios",
+      collapseMenu: "Contraer menú",
+      expandMenu: "Expandir menú",
+      sectionAriaLabel: "Laboratorios de esta sección",
+      onThisPage: "En esta página",
+      notFoundTitle: "Laboratorio no encontrado",
     },
     adminPage: {
       eyebrow: "Administración",
@@ -154,6 +205,31 @@ export const messages = {
       emptyTitle: "Laboratories will be available soon",
       emptyDescription:
         "This section is ready to connect to the content catalog and search engine.",
+      categoriesTitle: "Categories",
+      categoriesAriaLabel: "Laboratory categories",
+      allLaboratories: "All laboratories",
+      resultsConnector: "of",
+      searchLabel: "Search laboratories",
+      searchPlaceholder: "Search by name",
+      clearSearch: "Clear search",
+      paginationAriaLabel: "Laboratory pagination",
+      previousPage: "Previous page",
+      nextPage: "Next page",
+      pageLabel: "Page",
+      perPage: "Per page",
+      perPageAriaLabel: "Laboratories per page",
+      noResultsTitle: "No laboratories found",
+      noResultsDescription: "No laboratory name matches “{query}”.",
+      defaultDocumentSummary: "Laboratory document",
+      defaultCategoryName: "Laboratory",
+    },
+    laboratoryDetail: {
+      laboratories: "Laboratories",
+      collapseMenu: "Collapse menu",
+      expandMenu: "Expand menu",
+      sectionAriaLabel: "Laboratories in this section",
+      onThisPage: "On this page",
+      notFoundTitle: "Laboratory not found",
     },
     adminPage: {
       eyebrow: "Administration",

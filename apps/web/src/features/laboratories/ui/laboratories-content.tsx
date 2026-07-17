@@ -92,15 +92,15 @@ export function LaboratoriesContent({
         <div className="grid items-start gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
           <aside className="overflow-hidden rounded-2xl border bg-card">
             <div className="border-b px-5 py-4">
-              <h2 className="font-semibold">Categorías</h2>
+              <h2 className="font-semibold">{copy.categoriesTitle}</h2>
             </div>
-            <nav aria-label="Categorías de laboratorios" className="p-3">
+            <nav aria-label={copy.categoriesAriaLabel} className="p-3">
               <Link
                 href={createCatalogHref()}
                 aria-current={!category ? "page" : undefined}
                 className={navigationLinkClass(!category)}
               >
-                <span>Todos los laboratorios</span>
+                <span>{copy.allLaboratories}</span>
                 <span className="text-muted-foreground">
                   ({documents.length})
                 </span>
@@ -171,7 +171,7 @@ export function LaboratoriesContent({
             <section className="rounded-2xl border bg-card p-4 sm:p-5">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="text-xl font-semibold">
-                  {category?.name ?? "Todos los laboratorios"}{" "}
+                  {category?.name ?? copy.allLaboratories}{" "}
                   <span aria-live="polite" className="text-muted-foreground">
                     ({filteredDocuments.length})
                   </span>
@@ -180,14 +180,14 @@ export function LaboratoriesContent({
                   <p className="text-sm text-muted-foreground">
                     {pageStart + 1}–
                     {Math.min(pageStart + pageSize, filteredDocuments.length)}{" "}
-                    de {filteredDocuments.length}
+                    {copy.resultsConnector} {filteredDocuments.length}
                   </p>
                 ) : null}
               </div>
 
               <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center">
                 <label className="relative min-w-0 flex-1">
-                  <span className="sr-only">Buscar laboratorios</span>
+                  <span className="sr-only">{copy.searchLabel}</span>
                   <Search
                     aria-hidden="true"
                     className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -200,13 +200,13 @@ export function LaboratoriesContent({
                       resetCurrentPage();
                     }}
                     autoComplete="off"
-                    placeholder="Buscar por nombre"
+                    placeholder={copy.searchPlaceholder}
                     className="h-10 w-full rounded-lg border bg-background pr-10 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   />
                   {searchQuery ? (
                     <button
                       type="button"
-                      aria-label="Limpiar búsqueda"
+                      aria-label={copy.clearSearch}
                       onClick={() => {
                         setSearchQuery("");
                         resetCurrentPage();
@@ -220,11 +220,11 @@ export function LaboratoriesContent({
 
                 <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
                   <nav
-                    aria-label="Paginación de laboratorios"
+                    aria-label={copy.paginationAriaLabel}
                     className="flex items-center gap-1"
                   >
                     <PaginationButton
-                      label="Página anterior"
+                      label={copy.previousPage}
                       disabled={currentPage === 1}
                       onClick={() => replaceQuery({ pagina: currentPage - 1 })}
                     >
@@ -243,7 +243,7 @@ export function LaboratoriesContent({
                       ) : (
                         <PaginationButton
                           key={item}
-                          label={`Página ${item}`}
+                          label={`${copy.pageLabel} ${item}`}
                           active={item === currentPage}
                           onClick={() => replaceQuery({ pagina: item })}
                         >
@@ -253,7 +253,7 @@ export function LaboratoriesContent({
                     )}
 
                     <PaginationButton
-                      label="Página siguiente"
+                      label={copy.nextPage}
                       disabled={currentPage === totalPages}
                       onClick={() => replaceQuery({ pagina: currentPage + 1 })}
                     >
@@ -262,9 +262,9 @@ export function LaboratoriesContent({
                   </nav>
 
                   <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="hidden sm:inline">Por página</span>
+                    <span className="hidden sm:inline">{copy.perPage}</span>
                     <select
-                      aria-label="Laboratorios por página"
+                      aria-label={copy.perPageAriaLabel}
                       value={pageSize}
                       onChange={(event) =>
                         replaceQuery({
@@ -294,13 +294,17 @@ export function LaboratoriesContent({
                     className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <p className="text-xs font-medium tracking-wide text-primary uppercase">
-                      {categoryName(taxonomy, document.categoryId)}
+                      {categoryName(
+                        taxonomy,
+                        document.categoryId,
+                        copy.defaultCategoryName,
+                      )}
                     </p>
                     <h3 className="mt-2 text-xl font-semibold">
                       {document.metadata.title}
                     </h3>
                     <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
-                      {document.metadata.summary || "Documento de laboratorio"}
+                      {document.metadata.summary || copy.defaultDocumentSummary}
                     </p>
                     {document.metadata.tags.length ? (
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -325,12 +329,15 @@ export function LaboratoriesContent({
                 />
                 <h2 className="text-lg font-semibold">
                   {normalizedSearchQuery
-                    ? "No encontramos laboratorios"
+                    ? copy.noResultsTitle
                     : copy.emptyTitle}
                 </h2>
                 <p className="mt-2 max-w-xl text-sm text-muted-foreground">
                   {normalizedSearchQuery
-                    ? `No hay laboratorios cuyo nombre coincida con “${deferredSearchQuery.trim()}”.`
+                    ? copy.noResultsDescription.replace(
+                        "{query}",
+                        deferredSearchQuery.trim(),
+                      )
                     : copy.emptyDescription}
                 </p>
               </div>
@@ -443,10 +450,9 @@ function getPaginationItems(
   return items;
 }
 
-function categoryName(taxonomy: Taxonomy, id: string | null) {
+function categoryName(taxonomy: Taxonomy, id: string | null, fallback: string) {
   return (
-    taxonomy.categories.find((category) => category.id === id)?.name ??
-    "Laboratorio"
+    taxonomy.categories.find((category) => category.id === id)?.name ?? fallback
   );
 }
 

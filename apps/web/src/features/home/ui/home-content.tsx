@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SplineHeroScene } from "@/features/home/ui/spline-hero-scene";
 import { messages } from "@/shared/config/translations";
-import { usePreferencesStore } from "@/shared/store/preferences-store";
+import { useActiveLocale } from "@/shared/hooks/use-active-locale";
 
 const textContainerVariants: Variants = {
   hidden: {},
@@ -35,7 +35,7 @@ const textItemVariants: Variants = {
 const SCENE_LOAD_TIMEOUT_MS = 12_000;
 
 export function HomeContent() {
-  const locale = usePreferencesStore((state) => state.locale);
+  const locale = useActiveLocale();
   const copy = messages[locale];
   const shouldReduceMotion = useReducedMotion();
   const [isSceneReady, setIsSceneReady] = useState(false);

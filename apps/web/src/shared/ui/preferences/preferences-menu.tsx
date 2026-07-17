@@ -19,6 +19,7 @@ import {
   type AppTheme,
 } from "@/shared/config/preferences";
 import { messages } from "@/shared/config/translations";
+import { useActiveLocale } from "@/shared/hooks/use-active-locale";
 import { usePreferencesStore } from "@/shared/store/preferences-store";
 import { localeCookieName } from "@/shared/config/locale-routing";
 
@@ -31,7 +32,7 @@ export function PreferencesMenu() {
     () => false,
   );
   const { theme, setTheme } = useTheme();
-  const locale = usePreferencesStore((state) => state.locale);
+  const locale = useActiveLocale();
   const hasHydrated = usePreferencesStore((state) => state.hasHydrated);
   const setLocale = usePreferencesStore((state) => state.setLocale);
   const pathname = usePathname();

@@ -69,11 +69,13 @@ export function useActiveLaboratoryHeading(
 export function LaboratoryTableOfContents({
   activeId,
   items,
+  label,
   onNavigate,
   windowed = false,
 }: {
   activeId: string | null;
   items: MarkdownTableOfContentsItem[];
+  label: string;
   onNavigate: (id: string) => void;
   windowed?: boolean;
 }) {
@@ -180,8 +182,8 @@ export function LaboratoryTableOfContents({
   );
 
   return (
-    <nav aria-label="En esta página">
-      <h2 className="text-sm font-semibold">En esta página</h2>
+    <nav aria-label={label}>
+      <h2 className="text-sm font-semibold">{label}</h2>
       {windowed ? (
         <div
           ref={viewportRef}

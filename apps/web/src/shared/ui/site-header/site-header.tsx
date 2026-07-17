@@ -10,7 +10,7 @@ import {
   type Category,
 } from "@/features/content-management/domain/models";
 import { messages } from "@/shared/config/translations";
-import { usePreferencesStore } from "@/shared/store/preferences-store";
+import { useActiveLocale } from "@/shared/hooks/use-active-locale";
 import { PreferencesMenu } from "@/shared/ui/preferences/preferences-menu";
 
 type NavigationCategory = Category;
@@ -20,7 +20,7 @@ export function SiteHeader({
 }: {
   categories: NavigationCategory[];
 }) {
-  const locale = usePreferencesStore((state) => state.locale);
+  const locale = useActiveLocale();
   const copy = messages[locale].navigation;
 
   return (
@@ -95,7 +95,7 @@ function CategoryLinks({
   categories: NavigationCategory[];
   selectedCategory: string | null;
 }) {
-  const locale = usePreferencesStore((state) => state.locale);
+  const locale = useActiveLocale();
   return (
     <nav aria-label={ariaLabel} className="max-w-[60vw] overflow-x-auto">
       <div className="flex w-max items-center gap-1">

@@ -7,6 +7,7 @@ import { extractMarkdownTableOfContents } from "@/features/markdown-reader/prese
 import { MarkdownRenderer } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
 import { localizeTaxonomy } from "@/shared/config/locale-routing";
 import { assertContentLocale } from "@/shared/config/route-locale";
+import { messages } from "@/shared/config/translations";
 
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ locale: string; slug: string }> };
@@ -17,7 +18,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const document = await getContentRepository()
     .findPublishedBySlug(slug, locale)
     .catch(() => null);
-  if (!document) return { title: "Laboratorio no encontrado | AWS Labs" };
+  if (!document) {
+    return {
+      title: `${messages[locale].laboratoryDetail.notFoundTitle} | AWS Labs`,
+    };
+  }
   const languages = Object.fromEntries(
     Object.entries(document.entry.alternateSlugs).map(([key, value]) => [
       key,
@@ -92,7 +97,9 @@ export default async function LaboratoryDetailPage({ params }: Props) {
       <LaboratoryDetailShell
         locale={locale}
         backHref={backHref}
-        categoryName={category?.name ?? "Laboratorios"}
+        categoryName={
+          category?.name ?? messages[locale].laboratoryDetail.laboratories
+        }
         subcategoryName={subcategory?.name}
         currentLaboratoryId={entry.id}
         laboratories={laboratories}
