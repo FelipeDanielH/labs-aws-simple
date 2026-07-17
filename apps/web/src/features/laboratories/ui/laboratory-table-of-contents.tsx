@@ -4,6 +4,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { MarkdownTableOfContentsItem } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
 
+const headingIndentation: Record<MarkdownTableOfContentsItem["level"], string> =
+  {
+    1: "pl-4",
+    2: "pl-8",
+    3: "pl-12",
+    4: "pl-16",
+  };
+
 export function useActiveLaboratoryHeading(
   items: MarkdownTableOfContentsItem[],
 ) {
@@ -156,7 +164,7 @@ export function LaboratoryTableOfContents({
               aria-current={isActive ? "location" : undefined}
               onClick={() => onNavigate(item.id)}
               className={`block border-l-2 py-1.5 text-sm transition ${
-                item.level === 3 ? "pl-8" : "pl-4"
+                headingIndentation[item.level]
               } ${
                 isActive
                   ? "-ml-px border-primary font-semibold text-primary"

@@ -45,6 +45,10 @@ describe("MarkdownRenderer", () => {
 
 ### Red y **seguridad**
 
+#### Controles preventivos
+
+##### Detalle fuera del índice
+
 ## Objetivo general`;
     const tableOfContents = extractMarkdownTableOfContents(source);
     const markup = renderToStaticMarkup(
@@ -52,6 +56,11 @@ describe("MarkdownRenderer", () => {
     );
 
     expect(tableOfContents).toEqual([
+      {
+        id: "section-laboratorio",
+        title: "Laboratorio",
+        level: 1,
+      },
       {
         id: "section-objetivo-general",
         title: "Objetivo general",
@@ -63,13 +72,20 @@ describe("MarkdownRenderer", () => {
         level: 3,
       },
       {
+        id: "section-controles-preventivos",
+        title: "Controles preventivos",
+        level: 4,
+      },
+      {
         id: "section-objetivo-general-1",
         title: "Objetivo general",
         level: 2,
       },
     ]);
+    expect(markup).toMatch(/<h1[^>]*id="section-laboratorio"/);
     expect(markup).toMatch(/<h2[^>]*id="section-objetivo-general"/);
     expect(markup).toMatch(/<h3[^>]*id="section-red-y-seguridad"/);
+    expect(markup).toMatch(/<h4[^>]*id="section-controles-preventivos"/);
     expect(markup).toMatch(/<h2[^>]*id="section-objetivo-general-1"/);
     expect(markup).not.toContain("data-toc-id");
   });

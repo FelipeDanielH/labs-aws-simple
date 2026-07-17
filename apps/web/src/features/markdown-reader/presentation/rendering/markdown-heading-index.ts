@@ -16,7 +16,7 @@ type TraversableNode = {
 export type MarkdownTableOfContentsItem = {
   id: string;
   title: string;
-  level: 2 | 3;
+  level: 1 | 2 | 3 | 4;
 };
 
 export const remarkMarkdownHeadingIndex: Plugin<[], Root> = () => (tree) => {
@@ -54,7 +54,7 @@ export function extractMarkdownTableOfContents(
     if (node.type !== "heading") return;
 
     const heading = node as Heading;
-    if (heading.depth !== 2 && heading.depth !== 3) return;
+    if (!isTableOfContentsHeadingDepth(heading.depth)) return;
 
     const id = getHeadingMarker(heading);
     if (!id) return;
@@ -67,6 +67,12 @@ export function extractMarkdownTableOfContents(
   });
 
   return items;
+}
+
+function isTableOfContentsHeadingDepth(
+  depth: Heading["depth"],
+): depth is MarkdownTableOfContentsItem["level"] {
+  return depth >= 1 && depth <= 4;
 }
 
 function annotateMarkdownHeadings(tree: Root) {
