@@ -9,6 +9,7 @@ export type ImportIntent = {
   id: string;
   slug: string;
   folder: string;
+  canonicalKey: string;
   originalFileName: string;
   allowedPathnames: string[];
 };
@@ -44,6 +45,7 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       typeof payload.id !== "string" ||
       typeof payload.slug !== "string" ||
       typeof payload.folder !== "string" ||
+      typeof payload.canonicalKey !== "string" ||
       typeof payload.originalFileName !== "string" ||
       (payload.kind !== "docx" &&
         payload.kind !== "markdown" &&
@@ -58,6 +60,7 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       id: payload.id,
       slug: payload.slug,
       folder: payload.folder,
+      canonicalKey: payload.canonicalKey,
       originalFileName: payload.originalFileName,
       allowedPathnames: payload.allowedPathnames,
     };

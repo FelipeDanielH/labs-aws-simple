@@ -5,12 +5,15 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
-import type { Category } from "@/features/content-management/domain/models";
+import {
+  taxonomyLabel,
+  type Category,
+} from "@/features/content-management/domain/models";
 import { messages } from "@/shared/config/translations";
 import { usePreferencesStore } from "@/shared/store/preferences-store";
 import { PreferencesMenu } from "@/shared/ui/preferences/preferences-menu";
 
-type NavigationCategory = Pick<Category, "id" | "slug" | "name">;
+type NavigationCategory = Category;
 
 export function SiteHeader({
   categories,
@@ -24,7 +27,7 @@ export function SiteHeader({
     <header className="sticky top-0 z-50 h-16 px-2 py-1.5 sm:px-4">
       <div className="grid h-full w-full grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-[1.4rem] border border-foreground/10 bg-background/68 px-3 shadow-lg shadow-black/5 ring-1 ring-white/15 backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/52 sm:px-5">
         <Link
-          href="/"
+          href={`/${locale}`}
           aria-label={copy.home}
           className="group flex w-fit min-w-0 items-center gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -70,8 +73,9 @@ function CategoryNavigation({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const selectedCategory =
-    pathname === "/laboratorios" ? searchParams.get("categoria") : null;
+  const selectedCategory = pathname.endsWith("/laboratorios")
+    ? searchParams.get("categoria")
+    : null;
 
   return (
     <CategoryLinks
@@ -91,18 +95,22 @@ function CategoryLinks({
   categories: NavigationCategory[];
   selectedCategory: string | null;
 }) {
+  const locale = usePreferencesStore((state) => state.locale);
   return (
     <nav aria-label={ariaLabel} className="max-w-[60vw] overflow-x-auto">
       <div className="flex w-max items-center gap-1">
         {categories.map((category) => {
+          const label = taxonomyLabel(category, locale) ?? {
+            name: category.name,
+            slug: category.slug,
+          };
           const isActive =
-            selectedCategory === category.slug ||
-            selectedCategory === category.id;
+            selectedCategory === label.slug || selectedCategory === category.id;
 
           return (
             <Link
               key={category.id}
-              href={`/laboratorios?categoria=${encodeURIComponent(category.slug)}`}
+              href={`/${locale}/laboratorios?categoria=${encodeURIComponent(label.slug)}`}
               aria-current={isActive ? "page" : undefined}
               className={
                 isActive
@@ -110,7 +118,7 @@ function CategoryLinks({
                   : "rounded-lg px-4 py-2 text-sm font-medium whitespace-nowrap text-muted-foreground transition hover:bg-muted hover:text-foreground"
               }
             >
-              {category.name}
+              {label.name}
             </Link>
           );
         })}

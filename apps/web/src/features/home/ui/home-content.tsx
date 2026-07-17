@@ -154,7 +154,7 @@ export function HomeContent() {
               >
                 <Link
                   className="rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:shadow-md motion-reduce:transform-none"
-                  href="/laboratorios"
+                  href={`/${locale}/laboratorios`}
                 >
                   {copy.primaryAction}
                 </Link>

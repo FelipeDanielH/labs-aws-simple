@@ -25,6 +25,7 @@ export function LaboratoryDetailShell({
   laboratories,
   subcategoryName,
   tableOfContents,
+  locale,
 }: {
   backHref: string;
   categoryName: string;
@@ -33,6 +34,7 @@ export function LaboratoryDetailShell({
   laboratories: LaboratoryNavigationItem[];
   subcategoryName?: string;
   tableOfContents: MarkdownTableOfContentsItem[];
+  locale: "es" | "en";
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const { activeId, setActiveId } = useActiveLaboratoryHeading(tableOfContents);
@@ -100,7 +102,7 @@ export function LaboratoryDetailShell({
                   return (
                     <li key={laboratory.id}>
                       <Link
-                        href={`/laboratorios/${laboratory.slug}`}
+                        href={`/${locale}/laboratorios/${laboratory.slug}`}
                         aria-current={isCurrent ? "page" : undefined}
                         className={
                           isCurrent

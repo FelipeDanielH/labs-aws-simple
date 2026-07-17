@@ -24,8 +24,11 @@ export async function POST(request: Request, context: Context) {
       revalidatePath("/laboratorios");
       return NextResponse.json({ ok: true });
     }
-    const { expectedEtag } = z
-      .object({ expectedEtag: z.string().min(1) })
+    const { expectedEtag, locale } = z
+      .object({
+        expectedEtag: z.string().min(1),
+        locale: z.enum(["es", "en"]).default("es"),
+      })
       .parse(await request.json());
     if (action === "cleanup") {
       return NextResponse.json(
@@ -41,9 +44,14 @@ export async function POST(request: Request, context: Context) {
     if (!status) {
       throw new ContentManagementError("INVALID_INPUT", "Acción no válida.");
     }
-    const document = await repository.transition(id, status, expectedEtag);
-    revalidatePath("/laboratorios");
-    revalidatePath(`/laboratorios/${document.manifest.slug}`);
+    const document = await repository.transition(
+      id,
+      status,
+      expectedEtag,
+      locale,
+    );
+    revalidatePath("/es/laboratorios");
+    revalidatePath("/en/laboratorios");
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);

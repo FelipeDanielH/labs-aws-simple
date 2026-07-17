@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 import { AppProviders } from "@/app/providers";
@@ -17,6 +18,7 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   await connection();
+  const locale = (await headers()).get("x-app-locale") === "en" ? "en" : "es";
 
   const categories = await getContentRepository()
     .get()
@@ -24,7 +26,7 @@ export default async function RootLayout({
     .catch(() => []);
 
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body>
         <AppProviders>
           <SiteHeader categories={categories} />

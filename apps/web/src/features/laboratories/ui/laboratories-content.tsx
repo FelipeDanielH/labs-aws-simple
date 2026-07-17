@@ -16,18 +16,18 @@ import type {
   Taxonomy,
 } from "@/features/content-management/domain/models";
 import { messages } from "@/shared/config/translations";
-import { usePreferencesStore } from "@/shared/store/preferences-store";
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100] as const;
 
 export function LaboratoriesContent({
   documents,
   taxonomy,
+  locale,
 }: {
   documents: CatalogEntry[];
   taxonomy: Taxonomy;
+  locale: "es" | "en";
 }) {
-  const locale = usePreferencesStore((state) => state.locale);
   const copy = messages[locale].laboratoriesPage;
   const pathname = usePathname();
   const router = useRouter();
@@ -290,7 +290,7 @@ export function LaboratoriesContent({
                 {visibleDocuments.map((document) => (
                   <Link
                     key={document.id}
-                    href={`/laboratorios/${document.slug}`}
+                    href={`/${locale}/laboratorios/${document.slug}`}
                     className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <p className="text-xs font-medium tracking-wide text-primary uppercase">

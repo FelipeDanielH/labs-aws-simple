@@ -44,7 +44,9 @@ export async function PUT(request: Request, context: Context) {
     const current = await repository.findById(id);
     if (!current)
       throw new ContentManagementError("NOT_FOUND", "Documento no encontrado.");
-    if (current.manifest.content.kind === "markdown") {
+    const existing = current.manifest.localizations[input.locale];
+    const kind = input.contentKind ?? existing?.content.kind;
+    if (kind === "markdown") {
       assertSafeMarkdownUrls(input.source);
       assertExistingReferences(
         markdownLocalAssetReferences(input.source),
@@ -60,12 +62,10 @@ export async function PUT(request: Request, context: Context) {
     const document = await repository.update(id, {
       ...input,
       source:
-        current.manifest.content.kind === "html"
-          ? processHtmlContent(input.source).html
-          : input.source,
+        kind === "html" ? processHtmlContent(input.source).html : input.source,
     });
-    revalidatePath("/laboratorios");
-    revalidatePath(`/laboratorios/${document.manifest.slug}`);
+    revalidatePath("/es/laboratorios");
+    revalidatePath("/en/laboratorios");
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);
@@ -87,16 +87,19 @@ export async function DELETE(request: Request, context: Context) {
     assertSameOrigin(request);
     await requireAdminSession();
     const { id } = await context.params;
-    const { expectedEtag } = z
-      .object({ expectedEtag: z.string().min(1) })
+    const { expectedEtag, locale } = z
+      .object({
+        expectedEtag: z.string().min(1),
+        locale: z.enum(["es", "en"]).optional(),
+      })
       .parse(await request.json());
-    const document = await getContentRepository().transition(
-      id,
-      "trashed",
-      expectedEtag,
-    );
-    revalidatePath("/laboratorios");
-    revalidatePath(`/laboratorios/${document.manifest.slug}`);
+    const repository = getContentRepository();
+    const document =
+      locale === "en"
+        ? await repository.removeLocale(id, locale, expectedEtag)
+        : await repository.transition(id, "trashed", expectedEtag, "es");
+    revalidatePath("/es/laboratorios");
+    revalidatePath("/en/laboratorios");
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);
