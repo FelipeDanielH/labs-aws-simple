@@ -17,6 +17,10 @@ import {
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
 import { resolveSharedAssetReferences } from "./application/shared-asset-localization";
+import {
+  finalizeTaxonomyLocalizations,
+  updateLocalizedTaxonomyName,
+} from "./application/taxonomy-localization";
 import { convertDocxHtmlToMarkdown } from "./infrastructure/browser/mammoth-docx-converter";
 import {
   prepareHtmlContent,
@@ -388,6 +392,42 @@ describe("content management contracts", () => {
     expect(() => taxonomySchema.parse(duplicated)).toThrow(
       "El slug de categoría ya existe en ES",
     );
+  });
+
+  it("genera el slug localizado con el nombre completo al guardar", () => {
+    const firstEdit = updateLocalizedTaxonomyName(
+      { es: { name: "Entregable 1", slug: "entregable-1" } },
+      "en",
+      "E",
+    );
+    const completedEdit = updateLocalizedTaxonomyName(
+      firstEdit,
+      "en",
+      "Evaluation 1",
+    );
+    expect(completedEdit.en?.slug).toBe("");
+
+    expect(
+      finalizeTaxonomyLocalizations(completedEdit, "subcategory-id"),
+    ).toEqual({
+      es: { name: "Entregable 1", slug: "entregable-1" },
+      en: { name: "Evaluation 1", slug: "evaluation-1" },
+    });
+  });
+
+  it("mantiene estable un slug localizado después del primer guardado", () => {
+    const edited = updateLocalizedTaxonomyName(
+      {
+        es: { name: "Laboratorios", slug: "laboratorios" },
+        en: { name: "Labs", slug: "labs" },
+      },
+      "en",
+      "AWS Labs",
+    );
+    expect(finalizeTaxonomyLocalizations(edited, "category-id").en).toEqual({
+      name: "AWS Labs",
+      slug: "labs",
+    });
   });
 
   it("normaliza ETags HTTP antes de comparar versiones", () => {

@@ -14,6 +14,10 @@ import {
 } from "@/features/content-management/application/document-paths";
 import { cleanupRemainingMinutes } from "@/features/content-management/application/document-retention";
 import { resolveSharedAssetReferences } from "@/features/content-management/application/shared-asset-localization";
+import {
+  finalizeTaxonomyLocalizations,
+  updateLocalizedTaxonomyName,
+} from "@/features/content-management/application/taxonomy-localization";
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
 import type {
   Category,
@@ -2039,15 +2043,11 @@ function TaxonomyManager({
     });
   const updateCategoryLabel = (category: Category, name: string) =>
     updateCategory(category.id, {
-      localizations: {
-        ...category.localizations,
-        [activeLocale]: {
-          name,
-          slug:
-            category.localizations[activeLocale]?.slug ??
-            slugify(name || category.id),
-        },
-      },
+      localizations: updateLocalizedTaxonomyName(
+        category.localizations,
+        activeLocale,
+        name,
+      ),
       ...(activeLocale === "es" ? { name } : {}),
     });
   async function save() {
@@ -2055,24 +2055,30 @@ function TaxonomyManager({
       const normalized = {
         ...taxonomy,
         updatedAt: new Date().toISOString(),
-        categories: taxonomy.categories.map((category) => ({
-          ...category,
-          name: category.localizations.es!.name,
-          slug: category.localizations.es!.slug,
-          localizations: {
-            ...category.localizations,
-            es: category.localizations.es!,
-          },
-          subcategories: category.subcategories.map((subcategory) => ({
-            ...subcategory,
-            name: subcategory.localizations.es!.name,
-            slug: subcategory.localizations.es!.slug,
-            localizations: {
-              ...subcategory.localizations,
-              es: subcategory.localizations.es!,
-            },
-          })),
-        })),
+        categories: taxonomy.categories.map((category) => {
+          const localizations = finalizeTaxonomyLocalizations(
+            category.localizations,
+            category.id,
+          );
+          return {
+            ...category,
+            name: localizations.es.name,
+            slug: localizations.es.slug,
+            localizations,
+            subcategories: category.subcategories.map((subcategory) => {
+              const subcategoryLocalizations = finalizeTaxonomyLocalizations(
+                subcategory.localizations,
+                subcategory.id,
+              );
+              return {
+                ...subcategory,
+                name: subcategoryLocalizations.es.name,
+                slug: subcategoryLocalizations.es.slug,
+                localizations: subcategoryLocalizations,
+              };
+            }),
+          };
+        }),
       };
       const result = await adminRequest<VersionedTaxonomy>(
         "/api/admin/taxonomy",
@@ -2192,15 +2198,11 @@ function TaxonomyManager({
                             ...(activeLocale === "es"
                               ? { name: event.target.value }
                               : {}),
-                            localizations: {
-                              ...item.localizations,
-                              [activeLocale]: {
-                                name: event.target.value,
-                                slug:
-                                  item.localizations[activeLocale]?.slug ??
-                                  slugify(event.target.value || item.id),
-                              },
-                            },
+                            localizations: updateLocalizedTaxonomyName(
+                              item.localizations,
+                              activeLocale,
+                              event.target.value,
+                            ),
                           }
                         : item,
                     ),
