@@ -42,5 +42,14 @@ export function resolveSharedAssetReferences(
         .replaceAll(asset.relativePath, target.relativePath);
     }
   }
+  for (const spanish of spanishAssets) {
+    const target = uploaded.find(
+      (candidate) => candidate.index === spanish.index,
+    );
+    if (!target) continue;
+    resolved = resolved
+      .replaceAll(`./${spanish.relativePath}`, `./${target.relativePath}`)
+      .replaceAll(spanish.relativePath, target.relativePath);
+  }
   return resolved;
 }

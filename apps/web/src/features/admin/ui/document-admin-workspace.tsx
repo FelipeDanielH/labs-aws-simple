@@ -7,6 +7,7 @@ import {
   injectControlledBase,
   processHtmlContent,
 } from "@/features/content-management/application/html-content";
+import { markdownLocalAssetReferences } from "@/features/content-management/application/markdown-content";
 
 import {
   createShortId,
@@ -263,6 +264,7 @@ export function DocumentAdminWorkspace() {
         <DocumentEditor
           key={selected.etag}
           document={selected}
+          documents={documents}
           taxonomy={taxonomy}
           onClose={() => setSelected(null)}
           onSaved={(document) => {
@@ -538,7 +540,7 @@ function DocxImportPanel({
             active={activeLocale}
             hasEnglish={includeEnglish}
             onChange={setActiveLocale}
-            onAddEnglish={() => {
+            onAddLocale={() => {
               setIncludeEnglish(true);
               setActiveLocale("en");
             }}
@@ -585,6 +587,12 @@ function DocxImportPanel({
             <TranslationDraftPanel
               value={englishDraft}
               onChange={setEnglishDraft}
+              sharedAssets={converted.assets.map((asset) => ({
+                index: asset.index,
+                sha256: asset.sha256,
+                relativePath: `images/image-${asset.index + 1}.${asset.extension}`,
+                placeholder: `__DOCX_ASSET_${asset.index}__`,
+              }))}
             />
           )}
           <button
@@ -594,7 +602,8 @@ function DocxImportPanel({
               !markdownSource.trim() ||
               (includeEnglish &&
                 (!englishDraft?.source.trim() ||
-                  !englishDraft.metadata.title.trim()))
+                  !englishDraft.metadata.title.trim() ||
+                  Boolean(englishDraft.validationError)))
             }
             onClick={saveDraft}
             className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
@@ -625,6 +634,7 @@ function DirectImportPanel({
     kind === "markdown" ? "nuevo.md" : "documento.html",
   );
   const [assetFiles, setAssetFiles] = useState<File[]>([]);
+  const [sharedAssets, setSharedAssets] = useState<TranslationAsset[]>([]);
   const [metadata, setMetadata] = useState<DocumentMetadata>(emptyMetadata);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
@@ -669,6 +679,14 @@ function DirectImportPanel({
           : await prepareMarkdownContent(text, file.name, assetFiles);
       setSource(result.source);
       setWarnings(result.warnings);
+      setSharedAssets(
+        result.assets.map((asset, index) => ({
+          index,
+          sha256: asset.sha256,
+          relativePath: asset.relativePath,
+          placeholder: null,
+        })),
+      );
       setMetadata((current) => ({
         ...current,
         ...result.metadata,
@@ -697,6 +715,14 @@ function DirectImportPanel({
           : await prepareMarkdownContent(source, fileName, selected);
       setSource(result.source);
       setWarnings(result.warnings);
+      setSharedAssets(
+        result.assets.map((asset, index) => ({
+          index,
+          sha256: asset.sha256,
+          relativePath: asset.relativePath,
+          placeholder: null,
+        })),
+      );
       setMetadata((current) => ({
         ...current,
         ...result.metadata,
@@ -797,6 +823,7 @@ function DirectImportPanel({
       );
       setSource("");
       setAssetFiles([]);
+      setSharedAssets([]);
       setMetadata(emptyMetadata);
       setExtraJson("{}");
       setWarnings([]);
@@ -867,7 +894,7 @@ function DirectImportPanel({
         active={activeLocale}
         hasEnglish={includeEnglish}
         onChange={setActiveLocale}
-        onAddEnglish={() => {
+        onAddLocale={() => {
           setIncludeEnglish(true);
           setActiveLocale("en");
         }}
@@ -934,6 +961,7 @@ function DirectImportPanel({
         <TranslationDraftPanel
           value={englishDraft}
           onChange={setEnglishDraft}
+          sharedAssets={sharedAssets}
         />
       )}
       {error ? (
@@ -947,7 +975,8 @@ function DirectImportPanel({
           !source.trim() ||
           (includeEnglish &&
             (!englishDraft?.source.trim() ||
-              !englishDraft.metadata.title.trim()))
+              !englishDraft.metadata.title.trim() ||
+              Boolean(englishDraft.validationError)))
         }
         onClick={saveDraft}
         className="button-primary disabled:opacity-60"
@@ -1012,19 +1041,39 @@ type TranslationDraft = {
   metadata: DocumentMetadata;
   warnings: string[];
   assets: TranslationAsset[];
+  validationError: string | null;
 };
+
+function normalizeAssetReference(value: string): string {
+  return value
+    .split(/[?#]/u)[0]
+    .replaceAll("\\", "/")
+    .replace(/^\.\//u, "")
+    .replace(/^assets\//u, "");
+}
+
+function fileNameForTitle(
+  title: string,
+  kind: TranslationDraft["kind"],
+): string {
+  if (!title.trim()) return "";
+  const base = slugify(title.trim());
+  return `${base}.${kind === "html" ? "html" : "md"}`;
+}
 
 function LanguageTabs({
   active,
   hasEnglish,
-  onAddEnglish,
+  onAddLocale,
   onChange,
 }: {
   active: "es" | "en";
   hasEnglish: boolean;
-  onAddEnglish: () => void;
+  onAddLocale: (locale: "en") => void;
   onChange: (locale: "es" | "en") => void;
 }) {
+  const [selectingLocale, setSelectingLocale] = useState(false);
+
   return (
     <div className="flex flex-wrap items-center gap-2" role="tablist">
       <button
@@ -1044,16 +1093,37 @@ function LanguageTabs({
           onClick={() => onChange("en")}
           className={active === "en" ? "button-primary" : "button-secondary"}
         >
-          English
+          Inglés
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onAddEnglish}
-          className="button-secondary"
-        >
-          + Agregar otro idioma
-        </button>
+        <>
+          {selectingLocale ? (
+            <label className="flex items-center gap-2 text-sm">
+              <span>Idioma a agregar</span>
+              <select
+                autoFocus
+                defaultValue=""
+                className="input min-w-44"
+                onChange={(event) => {
+                  if (event.target.value === "en") onAddLocale("en");
+                }}
+              >
+                <option value="" disabled>
+                  Selecciona un idioma
+                </option>
+                <option value="en">Inglés</option>
+              </select>
+            </label>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSelectingLocale(true)}
+              className="button-secondary"
+            >
+              + Agregar otro idioma
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -1062,9 +1132,15 @@ function LanguageTabs({
 function TranslationDraftPanel({
   value,
   onChange,
+  sharedAssets = [],
+  sharedBaseUrl,
+  reservedSlugs = [],
 }: {
   value: TranslationDraft | null;
   onChange: (value: TranslationDraft) => void;
+  sharedAssets?: TranslationAsset[];
+  sharedBaseUrl?: string | null;
+  reservedSlugs?: string[];
 }) {
   const converter = useMemo(() => new MammothDocxConverter(), []);
   const [draft, setDraft] = useState<TranslationDraft>(
@@ -1075,13 +1151,48 @@ function TranslationDraftPanel({
       metadata: emptyMetadata,
       warnings: [],
       assets: [],
+      validationError: null,
     },
   );
-  const [assetFiles, setAssetFiles] = useState<File[]>([]);
+  const [createFile, setCreateFile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => onChange(draft), [draft, onChange]);
+
+  function validateSource(
+    kind: TranslationDraft["kind"],
+    source: string,
+  ): string | null {
+    if (kind === "docx" || !source.trim()) return null;
+    try {
+      const references =
+        kind === "html"
+          ? processHtmlContent(source).localReferences
+          : markdownLocalAssetReferences(source);
+      const available = new Set(
+        sharedAssets.map((asset) =>
+          normalizeAssetReference(asset.relativePath),
+        ),
+      );
+      const missing = references.filter(
+        (reference) => !available.has(normalizeAssetReference(reference)),
+      );
+      return missing.length
+        ? `No se encontraron estos recursos en la versión en español: ${missing.join(", ")}`
+        : null;
+    } catch (caught) {
+      return messageOf(caught);
+    }
+  }
+
+  function duplicateError(fileName: string): string | null {
+    if (!fileName.trim()) return null;
+    const nextSlug = slugify(fileName);
+    return reservedSlugs.includes(nextSlug)
+      ? "Ya existe una versión en inglés con ese nombre."
+      : null;
+  }
 
   async function loadFile(file: File | undefined) {
     if (!file) return;
@@ -1105,66 +1216,33 @@ function TranslationDraftPanel({
             relativePath: `image-${asset.index + 1}.${asset.extension}`,
             placeholder: `__DOCX_ASSET_${asset.index}__`,
           })),
+          validationError: duplicateError(file.name),
         }));
       } else {
         const text = new TextDecoder("utf-8", { fatal: true }).decode(
           await file.arrayBuffer(),
         );
-        const prepared =
-          draft.kind === "html"
-            ? await prepareHtmlContent(text, file.name, assetFiles)
-            : await prepareMarkdownContent(text, file.name, assetFiles);
+        const processed =
+          draft.kind === "html" ? processHtmlContent(text) : null;
         setDraft((current) => ({
           ...current,
           fileName: file.name,
-          source: prepared.source,
+          source: processed?.html ?? text,
           metadata: {
             ...current.metadata,
-            ...prepared.metadata,
-            title: prepared.metadata.title ?? prepared.title,
+            title: file.name.replace(/\.(?:md|markdown|html?)$/i, ""),
           },
-          warnings: prepared.warnings,
-          assets: prepared.assets.map((asset, index) => ({
-            index,
-            sha256: asset.sha256,
-            relativePath: asset.relativePath,
-            placeholder: null,
-          })),
+          warnings: processed?.warnings ?? [],
+          assets: [],
+          validationError:
+            duplicateError(file.name) ??
+            validateSource(draft.kind, processed?.html ?? text),
         }));
       }
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function selectAssets(files: FileList | null) {
-    const selected = companionFiles(files);
-    setAssetFiles(selected);
-    if (draft.kind === "docx" || !draft.source) return;
-    try {
-      const prepared =
-        draft.kind === "html"
-          ? await prepareHtmlContent(draft.source, draft.fileName, selected)
-          : await prepareMarkdownContent(
-              draft.source,
-              draft.fileName,
-              selected,
-            );
-      setDraft((current) => ({
-        ...current,
-        source: prepared.source,
-        warnings: prepared.warnings,
-        assets: prepared.assets.map((asset, index) => ({
-          index,
-          sha256: asset.sha256,
-          relativePath: asset.relativePath,
-          placeholder: null,
-        })),
-      }));
-    } catch (caught) {
-      setError(messageOf(caught));
     }
   }
 
@@ -1183,8 +1261,10 @@ function TranslationDraftPanel({
                 metadata: emptyMetadata,
                 warnings: [],
                 assets: [],
+                validationError: null,
               });
-              setAssetFiles([]);
+              setCreateFile(false);
+              setError("");
             }}
             className="input"
           >
@@ -1193,37 +1273,90 @@ function TranslationDraftPanel({
             <option value="html">HTML</option>
           </select>
         </Field>
-        <Field label="Archivo en inglés">
-          <input
-            type="file"
-            accept={
-              draft.kind === "docx"
-                ? ".docx"
-                : draft.kind === "html"
-                  ? ".html,text/html"
-                  : ".md,text/markdown"
-            }
-            disabled={busy}
-            onChange={(event) => void loadFile(event.target.files?.[0])}
-          />
-        </Field>
         {draft.kind !== "docx" ? (
-          <Field label="Recursos compartidos para validar">
+          <label className="flex items-center gap-2 self-end pb-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createFile}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setCreateFile(checked);
+                setError("");
+                setDraft((current) => ({
+                  ...current,
+                  fileName: checked
+                    ? fileNameForTitle(current.metadata.title, current.kind)
+                    : "",
+                  source: "",
+                  warnings: [],
+                  assets: [],
+                  validationError: null,
+                }));
+              }}
+            />
+            Crear archivo
+          </label>
+        ) : null}
+        {!createFile ? (
+          <Field label="Archivo en inglés">
             <input
               type="file"
-              multiple
+              accept={
+                draft.kind === "docx"
+                  ? ".docx"
+                  : draft.kind === "html"
+                    ? ".html,text/html"
+                    : ".md,.markdown,text/markdown"
+              }
               disabled={busy}
-              onChange={(event) => void selectAssets(event.target.files)}
+              onChange={(event) => void loadFile(event.target.files?.[0])}
             />
           </Field>
-        ) : null}
+        ) : (
+          <Field label="Archivo que se creará">
+            <input value={draft.fileName} readOnly className="input" />
+          </Field>
+        )}
       </div>
       <LocalizedMetadataFields
         metadata={draft.metadata}
-        onChange={(metadata) =>
-          setDraft((current) => ({ ...current, metadata }))
-        }
+        onChange={(metadata) => {
+          setDraft((current) => {
+            const fileName = createFile
+              ? fileNameForTitle(metadata.title, current.kind)
+              : current.fileName;
+            return {
+              ...current,
+              metadata,
+              fileName,
+              validationError:
+                duplicateError(fileName) ??
+                validateSource(current.kind, current.source),
+            };
+          });
+        }}
       />
+      {sharedAssets.length ? (
+        <details className="rounded-lg border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Imágenes compartidas disponibles ({sharedAssets.length})
+          </summary>
+          <p className="mt-2 text-muted-foreground">
+            Usa estas mismas rutas en la traducción; no es necesario volver a
+            subir las imágenes.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {sharedAssets.map((asset) => (
+              <li
+                key={`${asset.index}-${asset.relativePath}`}
+                className="break-all font-mono"
+              >
+                {asset.relativePath}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {draft.warnings.length ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
           <strong>Advertencias</strong>
@@ -1238,12 +1371,16 @@ function TranslationDraftPanel({
         <textarea
           aria-label="Contenido en inglés"
           value={draft.source}
-          onChange={(event) =>
+          onChange={(event) => {
+            const source = event.target.value;
             setDraft((current) => ({
               ...current,
-              source: event.target.value,
-            }))
-          }
+              source,
+              validationError:
+                duplicateError(current.fileName) ??
+                validateSource(current.kind, source),
+            }));
+          }}
           className="min-h-[28rem] rounded-xl border bg-background p-4 font-mono text-sm"
         />
         {draft.kind === "html" ? (
@@ -1254,7 +1391,7 @@ function TranslationDraftPanel({
               draft.source
                 ? injectControlledBase(
                     processHtmlContent(draft.source).html,
-                    "https://preview.invalid/assets/",
+                    sharedBaseUrl ?? "https://preview.invalid/assets/",
                   )
                 : ""
             }
@@ -1262,10 +1399,18 @@ function TranslationDraftPanel({
           />
         ) : (
           <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
-            <MarkdownRenderer source={draft.source} />
+            <MarkdownRenderer
+              source={draft.source}
+              baseUrl={sharedBaseUrl ?? undefined}
+            />
           </div>
         )}
       </div>
+      {draft.validationError ? (
+        <p role="alert" className="text-destructive">
+          {draft.validationError}
+        </p>
+      ) : null}
       {error ? <p className="text-destructive">{error}</p> : null}
     </div>
   );
@@ -1326,11 +1471,13 @@ function LocalizedMetadataFields({
 
 function DocumentEditor({
   document,
+  documents,
   taxonomy,
   onClose,
   onSaved,
 }: {
   document: VersionedDocument;
+  documents: VersionedManifest[];
   taxonomy: Taxonomy;
   onClose: () => void;
   onSaved: (document: VersionedDocument) => void;
@@ -1347,6 +1494,9 @@ function DocumentEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [activeLocale, setActiveLocale] = useState<"es" | "en">("es");
+  const [englishEnabled, setEnglishEnabled] = useState(
+    Boolean(document.manifest.localizations.en),
+  );
   const dirty =
     source !== document.source ||
     JSON.stringify(metadata) !== JSON.stringify(document.manifest.metadata) ||
@@ -1410,89 +1560,99 @@ function DocumentEditor({
       </div>
       <LanguageTabs
         active={activeLocale}
-        hasEnglish={Boolean(document.manifest.localizations.en)}
+        hasEnglish={englishEnabled}
         onChange={setActiveLocale}
-        onAddEnglish={() => setActiveLocale("en")}
+        onAddLocale={() => {
+          setEnglishEnabled(true);
+          setActiveLocale("en");
+        }}
       />
-      {activeLocale === "en" ? (
-        <EnglishDocumentEditor
-          document={document}
-          taxonomy={taxonomy}
-          onSaved={onSaved}
-        />
-      ) : (
-        <>
-          <MetadataFields
-            metadata={metadata}
-            onChange={setMetadata}
+      {englishEnabled ? (
+        <div hidden={activeLocale !== "en"}>
+          <EnglishDocumentEditor
+            document={document}
             taxonomy={taxonomy}
-            categoryId={categoryId}
-            subcategoryId={subcategoryId}
-            onCategoryChange={(value) => {
-              setCategoryId(value);
-              setSubcategoryId(null);
-            }}
-            onSubcategoryChange={setSubcategoryId}
-            extraJson={extraJson}
-            onExtraJsonChange={setExtraJson}
+            reservedSlugs={documents
+              .filter((item) => item.manifest.id !== document.manifest.id)
+              .flatMap((item) => {
+                const slug = item.manifest.localizations.en?.slug;
+                return slug ? [slug] : [];
+              })}
+            onSaved={onSaved}
           />
-          {document.manifest.assets.length ? (
-            <details className="rounded-xl border p-4">
-              <summary className="cursor-pointer font-medium">
-                Recursos asociados ({document.manifest.assets.length})
-              </summary>
-              <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
-                {document.manifest.assets.map((asset) => (
-                  <li key={asset.id} className="break-all font-mono">
-                    {asset.relativePath}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-          <div className="grid gap-5 lg:grid-cols-2">
-            <textarea
-              aria-label={
-                document.manifest.content.kind === "html" ? "HTML" : "Markdown"
-              }
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
-            />
-            {document.manifest.content.kind === "markdown" ? (
-              <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
-                <MarkdownRenderer
-                  source={source}
-                  baseUrl={document.manifest.content.url}
-                />
-              </div>
-            ) : (
-              <iframe
-                title="Vista previa HTML"
-                sandbox=""
-                srcDoc={injectControlledBase(
-                  processHtmlContent(source).html,
-                  document.manifest.content.assetBaseUrl ??
-                    document.manifest.content.url,
-                )}
-                className="min-h-[32rem] w-full rounded-xl border bg-white"
+        </div>
+      ) : null}
+      <div hidden={activeLocale !== "es"} className="space-y-5">
+        <MetadataFields
+          metadata={metadata}
+          onChange={setMetadata}
+          taxonomy={taxonomy}
+          categoryId={categoryId}
+          subcategoryId={subcategoryId}
+          onCategoryChange={(value) => {
+            setCategoryId(value);
+            setSubcategoryId(null);
+          }}
+          onSubcategoryChange={setSubcategoryId}
+          extraJson={extraJson}
+          onExtraJsonChange={setExtraJson}
+        />
+        {document.manifest.assets.length ? (
+          <details className="rounded-xl border p-4">
+            <summary className="cursor-pointer font-medium">
+              Recursos asociados ({document.manifest.assets.length})
+            </summary>
+            <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+              {document.manifest.assets.map((asset) => (
+                <li key={asset.id} className="break-all font-mono">
+                  {asset.relativePath}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <div className="grid gap-5 lg:grid-cols-2">
+          <textarea
+            aria-label={
+              document.manifest.content.kind === "html" ? "HTML" : "Markdown"
+            }
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
+          />
+          {document.manifest.content.kind === "markdown" ? (
+            <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
+              <MarkdownRenderer
+                source={source}
+                baseUrl={document.manifest.content.url}
               />
-            )}
-          </div>
-          {error ? (
-            <p role="alert" className="text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <button
-            disabled={busy || !dirty}
-            onClick={save}
-            className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {busy ? "Guardando…" : "Guardar cambios"}
-          </button>
-        </>
-      )}
+            </div>
+          ) : (
+            <iframe
+              title="Vista previa HTML"
+              sandbox=""
+              srcDoc={injectControlledBase(
+                processHtmlContent(source).html,
+                document.manifest.content.assetBaseUrl ??
+                  document.manifest.content.url,
+              )}
+              className="min-h-[32rem] w-full rounded-xl border bg-white"
+            />
+          )}
+        </div>
+        {error ? (
+          <p role="alert" className="text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <button
+          disabled={busy || !dirty}
+          onClick={save}
+          className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {busy ? "Guardando…" : "Guardar cambios"}
+        </button>
+      </div>
     </section>
   );
 }
@@ -1500,10 +1660,12 @@ function DocumentEditor({
 function EnglishDocumentEditor({
   document,
   taxonomy,
+  reservedSlugs,
   onSaved,
 }: {
   document: VersionedDocument;
   taxonomy: Taxonomy;
+  reservedSlugs: string[];
   onSaved: (document: VersionedDocument) => void;
 }) {
   const existing = document.manifest.localizations.en;
@@ -1615,12 +1777,31 @@ function EnglishDocumentEditor({
   if (!existing) {
     return (
       <div className="space-y-4">
-        <TranslationDraftPanel value={draft} onChange={setDraft} />
+        <TranslationDraftPanel
+          value={draft}
+          onChange={setDraft}
+          sharedAssets={document.manifest.assets.map((asset, index) => ({
+            index,
+            sha256: asset.sha256,
+            relativePath: asset.relativePath,
+            placeholder: null,
+          }))}
+          sharedBaseUrl={
+            document.manifest.localizations.es?.content.assetBaseUrl ??
+            document.manifest.localizations.es?.content.url ??
+            document.manifest.content.assetBaseUrl ??
+            document.manifest.content.url
+          }
+          reservedSlugs={reservedSlugs}
+        />
         {error ? <p className="text-destructive">{error}</p> : null}
         <button
           type="button"
           disabled={
-            busy || !draft?.source.trim() || !draft.metadata.title.trim()
+            busy ||
+            !draft?.source.trim() ||
+            !draft.metadata.title.trim() ||
+            Boolean(draft.validationError)
           }
           onClick={save}
           className="button-primary disabled:opacity-60"

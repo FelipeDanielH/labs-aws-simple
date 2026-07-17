@@ -122,6 +122,14 @@ describe("content management contracts", () => {
         uploaded,
       ),
     ).toBe("![Diagram](./images/stored.png)");
+    expect(
+      resolveSharedAssetReferences(
+        "![Diagram](./images/es.png)",
+        [],
+        shared,
+        uploaded,
+      ),
+    ).toBe("![Diagram](./images/stored.png)");
     expect(() =>
       resolveSharedAssetReferences(
         "![New](new.png)",
