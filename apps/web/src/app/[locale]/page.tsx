@@ -9,12 +9,7 @@ export default async function LocalizedHomePage({ params }: Props) {
   assertContentLocale(locale);
   return (
     <>
-      <link
-        rel="preload"
-        href={HOME_SPLINE_SCENE_URL}
-        as="fetch"
-        crossOrigin="anonymous"
-      />
+      <link rel="preload" href={HOME_SPLINE_SCENE_URL} as="fetch" />
       <HomeContent />
     </>
   );
