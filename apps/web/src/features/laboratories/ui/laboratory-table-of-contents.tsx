@@ -156,7 +156,7 @@ export function LaboratoryTableOfContents({
               aria-current={isActive ? "location" : undefined}
               onClick={() => onNavigate(item.id)}
               className={`block border-l-2 py-1.5 text-sm transition ${
-                item.level === 3 ? "pl-6" : "pl-4"
+                item.level === 3 ? "pl-8" : "pl-4"
               } ${
                 isActive
                   ? "-ml-px border-primary font-semibold text-primary"

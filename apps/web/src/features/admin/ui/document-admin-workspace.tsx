@@ -347,10 +347,10 @@ function DocxImportPanel({
       setFile(selected);
       setConverted(result);
       setMarkdownSource(result.markdown);
-      const inferredTitle =
-        result.markdown.match(/^#\s+(.+)$/m)?.[1] ??
-        selected.name.replace(/\.docx$/i, "");
-      setMetadata({ ...emptyMetadata, title: inferredTitle });
+      setMetadata({
+        ...emptyMetadata,
+        title: selected.name.replace(/\.docx$/i, ""),
+      });
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
