@@ -330,6 +330,7 @@ function DocxImportPanel({
   const converter = useMemo(() => new MammothDocxConverter(), []);
   const [file, setFile] = useState<File | null>(null);
   const [converted, setConverted] = useState<ConvertedDocx | null>(null);
+  const [markdownSource, setMarkdownSource] = useState("");
   const [metadata, setMetadata] = useState<DocumentMetadata>(emptyMetadata);
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [subcategoryId, setSubcategoryId] = useState<string | null>(null);
@@ -345,6 +346,7 @@ function DocxImportPanel({
       const result = await converter.convert(selected);
       setFile(selected);
       setConverted(result);
+      setMarkdownSource(result.markdown);
       const inferredTitle =
         result.markdown.match(/^#\s+(.+)$/m)?.[1] ??
         selected.name.replace(/\.docx$/i, "");
@@ -418,7 +420,7 @@ function DocxImportPanel({
             intentToken: intent.intentToken,
             originalFileName: file.name,
             contentKind: "docx",
-            source: converted.markdown,
+            source: markdownSource,
             assets: uploaded,
             metadata: { ...metadata, extra },
             categoryId,
@@ -428,6 +430,7 @@ function DocxImportPanel({
       );
       setFile(null);
       setConverted(null);
+      setMarkdownSource("");
       setMetadata(emptyMetadata);
       setExtraJson("{}");
       onCreated(document);
@@ -485,11 +488,19 @@ function DocxImportPanel({
             extraJson={extraJson}
             onExtraJsonChange={setExtraJson}
           />
-          <div className="max-h-[32rem] overflow-auto rounded-xl border bg-background p-5">
-            <MarkdownRenderer source={converted.markdown} />
+          <div className="grid gap-5 lg:grid-cols-2">
+            <textarea
+              aria-label="Contenido Markdown"
+              value={markdownSource}
+              onChange={(event) => setMarkdownSource(event.target.value)}
+              className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
+            />
+            <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
+              <MarkdownRenderer source={markdownSource} />
+            </div>
           </div>
           <button
-            disabled={busy || !metadata.title.trim()}
+            disabled={busy || !metadata.title.trim() || !markdownSource.trim()}
             onClick={saveDraft}
             className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60"
           >
