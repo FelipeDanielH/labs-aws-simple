@@ -33,6 +33,8 @@ describe("MarkdownRenderer", () => {
     expect(markup).toContain('src="blob:https://preview.local/image-0"');
     expect(markup).toContain('alt="Diagrama"');
     expect(markup).toContain("max-h-[36rem]");
+    expect(markup).toContain('aria-label="Ampliar imagen: Diagrama"');
+    expect(markup).toContain("cursor-zoom-in");
   });
 
   it("renderiza CommonMark, GFM y HTML semántico", () => {

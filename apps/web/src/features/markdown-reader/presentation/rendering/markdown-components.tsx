@@ -1,5 +1,7 @@
 import type { Components } from "react-markdown";
 
+import { ImageLightbox } from "@workspace/ui/components/image-lightbox";
+
 export const markdownComponents: Components = {
   h1: ({ node: _node, ...props }) => (
     <h1
@@ -115,14 +117,7 @@ export const markdownComponents: Components = {
     <td className="border-r px-4 py-3 align-top last:border-r-0" {...props} />
   ),
   img: ({ node: _node, alt = "", ...props }) => (
-    // Markdown and embedded HTML images do not guarantee intrinsic dimensions.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      alt={alt}
-      loading="lazy"
-      className="my-5 max-h-[36rem] max-w-full rounded-xl border object-contain"
-      {...props}
-    />
+    <ImageLightbox alt={alt} loading="lazy" {...props} />
   ),
   details: ({ node: _node, ...props }) => (
     <details className="my-5 rounded-xl border bg-muted/20 p-4" {...props} />
