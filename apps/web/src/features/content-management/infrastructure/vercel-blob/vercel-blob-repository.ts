@@ -26,6 +26,7 @@ import type {
   DocumentStatus,
   PublicCatalog,
   PublishedDocument,
+  ReplaceDocumentInput,
   Taxonomy,
   UpdateDocumentInput,
   VersionedDocument,
@@ -251,6 +252,62 @@ export class VercelBlobContentRepository
       );
       if (localization.status === "published")
         await this.syncCatalogs(manifest);
+      const document = await this.withContent(manifest, stored.etag);
+      document.sources[input.locale] = input.source;
+      if (input.locale === "es") document.source = input.source;
+      return document;
+    } catch (error) {
+      await del(content.url).catch(() => undefined);
+      this.rethrowStorageError(error);
+    }
+  }
+
+  async replace(
+    id: string,
+    input: ReplaceDocumentInput,
+  ): Promise<VersionedDocument> {
+    const current = await this.requireManifest(id);
+    if (current.etag !== input.expectedEtag) this.throwConflict();
+    const existing = current.manifest.localizations[input.locale];
+    if (!existing) this.invalid("No existe el idioma que se quiere reemplazar.");
+
+    const kind = input.contentKind ?? existing.content.kind;
+    const content = await this.writeContent(
+      current.manifest.folder,
+      input.locale,
+      kind,
+      input.source,
+    );
+    const now = new Date().toISOString();
+    const localization: DocumentLocalization = {
+      ...existing,
+      originalFileName: input.originalFileName ?? existing.originalFileName,
+      metadata: input.metadata,
+      content,
+      updatedAt: now,
+    };
+    const manifest = withManifestProjection({
+      ...current.manifest,
+      order: input.order,
+      categoryId: input.categoryId,
+      subcategoryId: input.subcategoryId,
+      assets: input.assets.map((asset) => ({
+        ...asset,
+        id: createShortId(),
+      })),
+      localizations: {
+        ...current.manifest.localizations,
+        [input.locale]: localization,
+      },
+      updatedAt: now,
+    });
+    try {
+      const stored = await this.writeJson(
+        contentPaths.manifest(manifest.folder),
+        manifest,
+        input.expectedEtag,
+      );
+      if (localization.status === "published") await this.syncCatalogs(manifest);
       const document = await this.withContent(manifest, stored.etag);
       document.sources[input.locale] = input.source;
       if (input.locale === "es") document.source = input.source;

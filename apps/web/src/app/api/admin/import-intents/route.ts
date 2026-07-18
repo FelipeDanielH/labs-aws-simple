@@ -36,6 +36,8 @@ const schema = z
         }),
       )
       .max(200),
+    existingDocumentId: z.string().min(1).optional(),
+    expectedEtag: z.string().min(1).optional(),
   })
   .superRefine((value, context) => {
     const extension =
@@ -83,13 +85,11 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     await requireAdminSession();
     const input = schema.parse(await request.json());
-    const id = createShortId();
-    const slug = slugify(input.originalFileName);
     const canonicalKey = canonicalDocumentKey(input.originalFileName);
     const existing = (await getContentRepository().list()).find(
       ({ manifest }) => manifest.canonicalKey === canonicalKey,
     );
-    if (existing) {
+    if (existing && existing.manifest.id !== input.existingDocumentId) {
       return NextResponse.json(
         {
           error: "Ya existe un laboratorio asociado a ese archivo.",
@@ -98,11 +98,25 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    const folder = contentPaths.documentFolder(slug, id);
+    if (
+      input.existingDocumentId &&
+      (!existing ||
+        existing.etag !== input.expectedEtag ||
+        existing.manifest.id !== input.existingDocumentId)
+    ) {
+      return NextResponse.json(
+        { error: "El laboratorio cambió; vuelve a abrir la importación." },
+        { status: 409 },
+      );
+    }
+    const id = existing?.manifest.id ?? createShortId();
+    const slug = existing?.manifest.slug ?? slugify(input.originalFileName);
+    const folder =
+      existing?.manifest.folder ?? contentPaths.documentFolder(slug, id);
     const assets = input.assets.map((asset) => {
       const relativePath =
         input.kind === "docx"
-          ? `${String(asset.index + 1).padStart(3, "0")}-${asset.sha256.slice(0, 16)}.${asset.extension}`
+          ? `${existing ? `${createShortId()}-` : ""}${String(asset.index + 1).padStart(3, "0")}-${asset.sha256.slice(0, 16)}.${asset.extension}`
           : normalizeRelativeAssetPath(asset.relativePath);
       return {
         index: asset.index,
@@ -123,6 +137,7 @@ export async function POST(request: Request) {
       canonicalKey,
       originalFileName: input.originalFileName,
       allowedPathnames: assets.map((asset) => asset.pathname),
+      replaceEtag: existing?.etag,
     });
     return NextResponse.json({ id, slug, folder, intentToken, assets });
   } catch (error) {

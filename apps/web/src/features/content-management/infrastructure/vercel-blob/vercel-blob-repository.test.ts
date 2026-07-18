@@ -219,6 +219,40 @@ describe("VercelBlobContentRepository", () => {
     expect(blobMocks.del).not.toHaveBeenCalledWith(markdownPath);
   });
 
+  it("reemplaza el Markdown y el manifiesto de imágenes de una reimportación", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.replace("document-1", {
+      locale: "es",
+      source: "![Diagrama](./images/nueva.png)",
+      metadata: createManifest().localizations.es!.metadata,
+      assets: [
+        {
+          originalName: "nueva.png",
+          relativePath: "images/nueva.png",
+          pathname:
+            "aws-labs/v1/documents/laboratorio-abc123/images/nueva.png",
+          url: "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/laboratorio-abc123/images/nueva.png",
+          contentType: "image/png",
+          size: 68,
+          sha256: "a".repeat(64),
+        },
+      ],
+      order: null,
+      categoryId: null,
+      subcategoryId: null,
+      expectedEtag: "current-manifest-etag",
+    });
+
+    expect(document.source).toBe("![Diagrama](./images/nueva.png)");
+    expect(document.manifest.assets).toEqual([
+      expect.objectContaining({
+        originalName: "nueva.png",
+        relativePath: "images/nueva.png",
+      }),
+    ]);
+  });
+
   it("limpia versiones antiguas después de diez minutos y conserva dos", async () => {
     const updatedAt = new Date(Date.now() - 11 * 60 * 1000);
     const manifest = {

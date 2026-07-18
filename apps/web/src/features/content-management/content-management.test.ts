@@ -487,6 +487,14 @@ describe("content management contracts", () => {
     );
   });
 
+  it("conserva las imágenes DOCX como referencias Markdown", () => {
+    const markdown = convertDocxHtmlToMarkdown(
+      '<p><img alt="Diagrama" src="__DOCX_ASSET_0__"></p>',
+    );
+
+    expect(markdown).toBe("![Diagrama](__DOCX_ASSET_0__)\n");
+  });
+
   it("conserva como HTML las tablas DOCX con celdas combinadas", () => {
     const markdown = convertDocxHtmlToMarkdown(
       '<table><tr><td colspan="2">Celda combinada</td></tr></table>',

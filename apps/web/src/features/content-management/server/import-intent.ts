@@ -12,6 +12,7 @@ export type ImportIntent = {
   canonicalKey: string;
   originalFileName: string;
   allowedPathnames: string[];
+  replaceEtag?: string;
 };
 
 function secret(): Uint8Array {
@@ -51,7 +52,9 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
         payload.kind !== "markdown" &&
         payload.kind !== "html") ||
       !Array.isArray(payload.allowedPathnames) ||
-      !payload.allowedPathnames.every((value) => typeof value === "string")
+      !payload.allowedPathnames.every((value) => typeof value === "string") ||
+      (payload.replaceEtag !== undefined &&
+        typeof payload.replaceEtag !== "string")
     ) {
       throw new Error("Invalid payload");
     }
@@ -63,6 +66,7 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       canonicalKey: payload.canonicalKey,
       originalFileName: payload.originalFileName,
       allowedPathnames: payload.allowedPathnames,
+      replaceEtag: payload.replaceEtag,
     };
   } catch (cause) {
     throw new ContentManagementError(

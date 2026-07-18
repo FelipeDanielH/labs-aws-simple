@@ -182,6 +182,10 @@ export type UpdateDocumentInput = {
   expectedEtag: string;
 };
 
+export type ReplaceDocumentInput = UpdateDocumentInput & {
+  assets: UploadedAssetInput[];
+};
+
 export function documentMetadata(
   manifest: DocumentManifest,
   locale: ContentLocale = "es",

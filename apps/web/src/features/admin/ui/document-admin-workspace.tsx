@@ -342,7 +342,6 @@ function ContentImportPanel(props: {
 function DocxImportPanel({
   taxonomy,
   onCreated,
-  onExisting,
 }: {
   taxonomy: Taxonomy;
   onCreated: (document: VersionedDocument) => void;
@@ -351,6 +350,10 @@ function DocxImportPanel({
   const converter = useMemo(() => new MammothDocxConverter(), []);
   const [file, setFile] = useState<File | null>(null);
   const [converted, setConverted] = useState<ConvertedDocx | null>(null);
+  const [existing, setExisting] = useState<VersionedDocument | null>(null);
+  const [previewAssetUrls, setPreviewAssetUrls] = useState<
+    Record<string, string>
+  >({});
   const [markdownSource, setMarkdownSource] = useState("");
   const [metadata, setMetadata] = useState<DocumentMetadata>(emptyMetadata);
   const [categoryId, setCategoryId] = useState<string | null>(null);
@@ -364,31 +367,53 @@ function DocxImportPanel({
   );
   const [includeEnglish, setIncludeEnglish] = useState(false);
 
+  useEffect(() => {
+    if (!converted) {
+      setPreviewAssetUrls({});
+      return;
+    }
+    const urls = Object.fromEntries(
+      converted.assets.map((asset) => [
+        asset.placeholder,
+        URL.createObjectURL(asset.blob),
+      ]),
+    );
+    setPreviewAssetUrls(urls);
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+  }, [converted]);
+
   async function selectFile(selected: File | undefined) {
     if (!selected) return;
     setBusy(true);
     setError("");
     try {
+      const result = await converter.convert(selected);
       const duplicate = await adminRequest<{
         existingDocumentId: string | null;
       }>(
         `/api/admin/import-intents?fileName=${encodeURIComponent(selected.name)}`,
       );
       if (duplicate.existingDocumentId) {
-        setError(
-          "Ese laboratorio ya existe. Se abrió su edición para agregar o reemplazar idiomas.",
+        const document = await adminRequest<VersionedDocument>(
+          `/api/admin/documents/${duplicate.existingDocumentId}`,
         );
-        onExisting(duplicate.existingDocumentId);
-        return;
+        setExisting(document);
+        setMetadata(document.manifest.metadata);
+        setCategoryId(document.manifest.categoryId);
+        setSubcategoryId(document.manifest.subcategoryId);
+        setExtraJson(JSON.stringify(document.manifest.metadata.extra, null, 2));
+        setIncludeEnglish(false);
+        setEnglishDraft(null);
+      } else {
+        setExisting(null);
+        setMetadata({
+          ...emptyMetadata,
+          title: selected.name.replace(/\.docx$/i, ""),
+        });
       }
-      const result = await converter.convert(selected);
       setFile(selected);
       setConverted(result);
       setMarkdownSource(result.markdown);
-      setMetadata({
-        ...emptyMetadata,
-        title: selected.name.replace(/\.docx$/i, ""),
-      });
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
@@ -415,6 +440,8 @@ function DocxImportPanel({
         body: JSON.stringify({
           kind: "docx",
           originalFileName: file.name,
+          existingDocumentId: existing?.manifest.id,
+          expectedEtag: existing?.etag,
           assets: converted.assets.map((asset) => ({
             index: asset.index,
             sha256: asset.sha256,
@@ -465,31 +492,41 @@ function DocxImportPanel({
             )
           : null;
       const document = await adminRequest<VersionedDocument>(
-        "/api/admin/documents",
+        existing
+          ? `/api/admin/documents/${existing.manifest.id}/reimport`
+          : "/api/admin/documents",
         {
           method: "POST",
           body: JSON.stringify({
             intentToken: intent.intentToken,
-            variants: [
-              {
-                locale: "es",
-                originalFileName: file.name,
-                contentKind: "docx",
-                source: markdownSource,
-                metadata: localizedMetadata({ ...metadata, extra }),
-              },
-              ...(includeEnglish && englishDraft && englishSource
-                ? [
+            ...(existing
+              ? {
+                  source: markdownSource,
+                  metadata: localizedMetadata({ ...metadata, extra }),
+                  expectedEtag: existing.etag,
+                }
+              : {
+                  variants: [
                     {
-                      locale: "en" as const,
-                      originalFileName: englishDraft.fileName,
-                      contentKind: englishDraft.kind,
-                      source: englishSource,
-                      metadata: localizedMetadata(englishDraft.metadata),
+                      locale: "es",
+                      originalFileName: file.name,
+                      contentKind: "docx",
+                      source: markdownSource,
+                      metadata: localizedMetadata({ ...metadata, extra }),
                     },
-                  ]
-                : []),
-            ],
+                    ...(includeEnglish && englishDraft && englishSource
+                      ? [
+                          {
+                            locale: "en" as const,
+                            originalFileName: englishDraft.fileName,
+                            contentKind: englishDraft.kind,
+                            source: englishSource,
+                            metadata: localizedMetadata(englishDraft.metadata),
+                          },
+                        ]
+                      : []),
+                  ],
+                }),
             assets: uploaded,
             order: metadata.order,
             categoryId,
@@ -499,6 +536,7 @@ function DocxImportPanel({
       );
       setFile(null);
       setConverted(null);
+      setExisting(null);
       setMarkdownSource("");
       setMetadata(emptyMetadata);
       setExtraJson("{}");
@@ -536,15 +574,22 @@ function DocxImportPanel({
       ) : null}
       {converted ? (
         <div className="space-y-5">
-          <LanguageTabs
-            active={activeLocale}
-            hasEnglish={includeEnglish}
-            onChange={setActiveLocale}
-            onAddLocale={() => {
-              setIncludeEnglish(true);
-              setActiveLocale("en");
-            }}
-          />
+          {existing ? (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              Se reemplazará la versión española existente y sus imágenes. La
+              versión inglesa, si existe, se conservará.
+            </p>
+          ) : (
+            <LanguageTabs
+              active={activeLocale}
+              hasEnglish={includeEnglish}
+              onChange={setActiveLocale}
+              onAddLocale={() => {
+                setIncludeEnglish(true);
+                setActiveLocale("en");
+              }}
+            />
+          )}
           {activeLocale === "es" ? (
             <>
               {converted.warnings.length ? (
@@ -579,7 +624,25 @@ function DocxImportPanel({
                   className="min-h-[32rem] rounded-xl border bg-background p-4 font-mono text-sm"
                 />
                 <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
-                  <MarkdownRenderer source={markdownSource} />
+                  <MarkdownRenderer
+                    source={markdownSource}
+                    components={{
+                      img: ({ src, alt, ...props }) => (
+                        // The preview uses browser-only object URLs; Next/Image
+                        // cannot optimize resources that have not been uploaded.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          {...props}
+                          alt={alt ?? ""}
+                          src={
+                            typeof src === "string"
+                              ? (previewAssetUrls[src] ?? src)
+                              : undefined
+                          }
+                        />
+                      ),
+                    }}
+                  />
                 </div>
               </div>
             </>
@@ -610,7 +673,7 @@ function DocxImportPanel({
           >
             {busy
               ? "Guardando…"
-              : `Guardar borrador (${converted.assets.length} imágenes)`}
+              : `${existing ? "Reemplazar DOCX" : "Guardar borrador"} (${converted.assets.length} imágenes)`}
           </button>
         </div>
       ) : null}

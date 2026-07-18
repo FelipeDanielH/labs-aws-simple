@@ -5,6 +5,7 @@ import type {
   DocumentStatus,
   PublishedDocument,
   PublicCatalog,
+  ReplaceDocumentInput,
   UpdateDocumentInput,
   VersionedDocument,
   VersionedManifest,
@@ -19,6 +20,10 @@ export interface DocumentRepository {
   ): Promise<PublishedDocument | null>;
   create(input: CreateDocumentInput): Promise<VersionedDocument>;
   update(id: string, input: UpdateDocumentInput): Promise<VersionedDocument>;
+  replace(
+    id: string,
+    input: ReplaceDocumentInput,
+  ): Promise<VersionedDocument>;
   transition(
     id: string,
     status: DocumentStatus,
