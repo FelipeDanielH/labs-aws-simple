@@ -55,8 +55,8 @@ export function ImageLightbox({
         <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm" />
         <DialogPrimitive.Content
           className={cn(
-            "fixed top-1/2 left-1/2 z-[101] -translate-x-1/2 -translate-y-1/2",
-            "max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] outline-none",
+            "pointer-events-none fixed inset-0 z-[101] grid grid-rows-[4.5rem_minmax(0,1fr)]",
+            "outline-none",
           )}
         >
           <DialogPrimitive.Title className="sr-only">
@@ -67,17 +67,19 @@ export function ImageLightbox({
             contenido.
           </DialogPrimitive.Description>
 
-          {/* Keep the original image URL and resolution in the enlarged view. */}
-          <img
-            {...props}
-            alt={alt}
-            loading="eager"
-            className="block max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] rounded-lg object-contain shadow-2xl"
-          />
+          <div className="pointer-events-auto row-start-2 flex min-h-0 min-w-0 items-center justify-center px-4 pb-4">
+            {/* Keep the original image URL and resolution in the enlarged view. */}
+            <img
+              {...props}
+              alt={alt}
+              loading="eager"
+              className="block max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            />
+          </div>
 
           <DialogPrimitive.Close
             className={cn(
-              "fixed top-4 right-4 grid size-11 cursor-pointer place-items-center rounded-full",
+              "pointer-events-auto absolute top-4 right-4 grid size-11 cursor-pointer place-items-center rounded-full",
               "border border-white/50 bg-black/70 text-white shadow-lg transition-colors hover:bg-black",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black",
             )}
