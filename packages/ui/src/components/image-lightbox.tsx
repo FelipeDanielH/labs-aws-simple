@@ -17,6 +17,11 @@ export function ImageLightbox({
   ...props
 }: ImageLightboxProps) {
   const imageName = alt.trim() || "Imagen";
+  const {
+    width: _importedWidth,
+    height: _importedHeight,
+    ...lightboxImageProps
+  } = props;
 
   return (
     <DialogPrimitive.Root>
@@ -70,10 +75,10 @@ export function ImageLightbox({
           <div className="pointer-events-auto row-start-2 flex min-h-0 min-w-0 items-center justify-center px-4 pb-4">
             {/* Keep the original image URL and resolution in the enlarged view. */}
             <img
-              {...props}
+              {...lightboxImageProps}
               alt={alt}
               loading="eager"
-              className="block max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+              className="block h-auto w-auto max-h-full max-w-full rounded-lg object-contain shadow-2xl"
             />
           </div>
 
