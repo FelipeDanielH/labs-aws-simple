@@ -38,7 +38,10 @@ import {
   type BrowserAsset,
 } from "@/features/content-management/infrastructure/browser/direct-content-converter";
 import { adminRequest } from "@/features/content-management/presentation/admin-api";
-import { MarkdownRenderer } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
+import {
+  MarkdownRenderer,
+  transformMarkdownUrl,
+} from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
 
 const emptyMetadata: DocumentMetadata = {
   title: "",
@@ -626,22 +629,9 @@ function DocxImportPanel({
                 <div className="max-h-[42rem] overflow-auto rounded-xl border bg-background p-5">
                   <MarkdownRenderer
                     source={markdownSource}
-                    components={{
-                      img: ({ src, alt, ...props }) => (
-                        // The preview uses browser-only object URLs; Next/Image
-                        // cannot optimize resources that have not been uploaded.
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          {...props}
-                          alt={alt ?? ""}
-                          src={
-                            typeof src === "string"
-                              ? (previewAssetUrls[src] ?? src)
-                              : undefined
-                          }
-                        />
-                      ),
-                    }}
+                    urlTransform={(url) =>
+                      previewAssetUrls[url] ?? transformMarkdownUrl(url)
+                    }
                   />
                 </div>
               </div>

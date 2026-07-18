@@ -15,12 +15,14 @@ export type MarkdownRendererProps = {
   source: string;
   components?: Components;
   baseUrl?: string;
+  urlTransform?: (url: string) => string;
 };
 
 export function MarkdownRenderer({
   source,
   components,
   baseUrl,
+  urlTransform,
 }: MarkdownRendererProps) {
   return (
     <div className="markdown-document overflow-hidden">
@@ -33,7 +35,9 @@ export function MarkdownRenderer({
           rehypeRestoreMarkdownHeadingIds,
         ]}
         components={{ ...markdownComponents, ...components }}
-        urlTransform={(url) => transformMarkdownUrl(url, baseUrl)}
+        urlTransform={
+          urlTransform ?? ((url) => transformMarkdownUrl(url, baseUrl))
+        }
       >
         {source}
       </Markdown>

@@ -17,6 +17,24 @@ describe("MarkdownRenderer", () => {
       "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/lab/images/diagram.png",
     );
   });
+
+  it("permite resolver imágenes temporales del previsualizador DOCX", () => {
+    const source = "![Diagrama](__DOCX_ASSET_0__)";
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownRenderer, {
+        source,
+        urlTransform: (url) =>
+          url === "__DOCX_ASSET_0__"
+            ? "blob:https://preview.local/image-0"
+            : transformMarkdownUrl(url),
+      }),
+    );
+
+    expect(markup).toContain('src="blob:https://preview.local/image-0"');
+    expect(markup).toContain('alt="Diagrama"');
+    expect(markup).toContain("max-h-[36rem]");
+  });
+
   it("renderiza CommonMark, GFM y HTML semántico", () => {
     const source = `# Documento
 
