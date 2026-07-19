@@ -109,6 +109,7 @@ export default async function LaboratoryDetailPage({ params }: Props) {
           <MarkdownRenderer
             source={document.source}
             baseUrl={entry.content.assetBaseUrl ?? entry.content.url}
+            locale={locale}
           />
         ) : (
           <iframe

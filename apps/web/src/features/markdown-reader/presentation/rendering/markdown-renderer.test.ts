@@ -37,6 +37,19 @@ describe("MarkdownRenderer", () => {
     expect(markup).toContain("cursor-zoom-in");
   });
 
+  it("localiza las acciones accesibles de las imágenes", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownRenderer, {
+        source: "![Architecture](./architecture.png)",
+        locale: "en",
+      }),
+    );
+
+    expect(markup).toContain(
+      'aria-label="Enlarge image: Architecture"',
+    );
+  });
+
   it("renderiza CommonMark, GFM y HTML semántico", () => {
     const source = `# Documento
 

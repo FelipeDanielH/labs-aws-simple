@@ -116,7 +116,7 @@ export function MarkdownReaderWorkspace() {
       ) : null}
 
       {state.status === "ready" ? (
-        <MarkdownDocumentView document={state.document} />
+        <MarkdownDocumentView document={state.document} locale={locale} />
       ) : null}
     </section>
   );

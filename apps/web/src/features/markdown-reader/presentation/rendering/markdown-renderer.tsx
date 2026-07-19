@@ -7,14 +7,17 @@ import {
   rehypeRestoreMarkdownHeadingIds,
   remarkMarkdownHeadingIndex,
 } from "./markdown-heading-index";
-import { markdownComponents } from "./markdown-components";
+import { createMarkdownComponents } from "./markdown-components";
 import { markdownSanitizeSchema } from "./markdown-sanitize-schema";
 import { rehypeNeutralizeActiveHtml } from "./rehype-neutralize-active-html";
+import type { AppLocale } from "@/shared/config/preferences";
+import { messages } from "@/shared/config/translations";
 
 export type MarkdownRendererProps = {
   source: string;
   components?: Components;
   baseUrl?: string;
+  locale?: AppLocale;
   urlTransform?: (url: string) => string;
 };
 
@@ -22,8 +25,13 @@ export function MarkdownRenderer({
   source,
   components,
   baseUrl,
+  locale = "es",
   urlTransform,
 }: MarkdownRendererProps) {
+  const localizedComponents = createMarkdownComponents(
+    messages[locale].imageLightbox,
+  );
+
   return (
     <div className="markdown-document overflow-hidden">
       <Markdown
@@ -34,7 +42,7 @@ export function MarkdownRenderer({
           [rehypeSanitize, markdownSanitizeSchema],
           rehypeRestoreMarkdownHeadingIds,
         ]}
-        components={{ ...markdownComponents, ...components }}
+        components={{ ...localizedComponents, ...components }}
         urlTransform={
           urlTransform ?? ((url) => transformMarkdownUrl(url, baseUrl))
         }

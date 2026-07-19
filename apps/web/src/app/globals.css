@@ -23,6 +23,14 @@
   html[data-custom-cursor="true"] [data-native-cursor] {
     cursor: auto !important;
   }
+
+  html[data-custom-cursor="true"] [data-native-cursor="zoom-in"] {
+    cursor: zoom-in !important;
+  }
+
+  html[data-custom-cursor="true"] [data-native-cursor="zoom-out"] {
+    cursor: zoom-out !important;
+  }
 }
 
 @layer components {

@@ -1,4 +1,5 @@
 import type { AppLocale, AppTheme } from "@/shared/config/preferences";
+import type { ImageLightboxLabels } from "@workspace/ui/components/image-lightbox";
 
 type Messages = {
   navigation: {
@@ -31,6 +32,7 @@ type Messages = {
     readFailed: string;
     parseFailed: string;
   };
+  imageLightbox: ImageLightboxLabels;
   laboratoriesPage: {
     eyebrow: string;
     title: string;
@@ -106,6 +108,18 @@ export const messages = {
       fileTooLarge: "El archivo supera el tamaño máximo permitido de 2 MiB.",
       readFailed: "No fue posible leer el archivo seleccionado.",
       parseFailed: "No fue posible interpretar el contenido Markdown.",
+    },
+    imageLightbox: {
+      imageFallback: "Imagen",
+      expand: "Ampliar imagen",
+      dialogTitle: "Vista ampliada",
+      dialogDescription:
+        "Pulsa Escape, el botón cerrar o fuera de la imagen para volver al contenido.",
+      close: "Cerrar imagen ampliada",
+      zoomIn: "Activar zoom",
+      zoomOut: "Desactivar zoom",
+      zoomHint: "Haz clic para ampliar",
+      zoomActiveHint: "Mueve el cursor · clic para reducir",
     },
     laboratoriesPage: {
       eyebrow: "Biblioteca",
@@ -196,6 +210,18 @@ export const messages = {
       fileTooLarge: "The file exceeds the maximum allowed size of 2 MiB.",
       readFailed: "The selected file could not be read.",
       parseFailed: "The Markdown content could not be parsed.",
+    },
+    imageLightbox: {
+      imageFallback: "Image",
+      expand: "Enlarge image",
+      dialogTitle: "Enlarged view",
+      dialogDescription:
+        "Press Escape, the close button, or outside the image to return to the content.",
+      close: "Close enlarged image",
+      zoomIn: "Activate zoom",
+      zoomOut: "Deactivate zoom",
+      zoomHint: "Click to zoom",
+      zoomActiveHint: "Move the pointer · click to zoom out",
     },
     laboratoriesPage: {
       eyebrow: "Library",

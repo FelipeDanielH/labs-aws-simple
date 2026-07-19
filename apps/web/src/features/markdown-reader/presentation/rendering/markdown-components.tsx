@@ -1,8 +1,11 @@
 import type { Components } from "react-markdown";
 
-import { ImageLightbox } from "@workspace/ui/components/image-lightbox";
+import {
+  ImageLightbox,
+  type ImageLightboxLabels,
+} from "@workspace/ui/components/image-lightbox";
 
-export const markdownComponents: Components = {
+const markdownComponents: Components = {
   h1: ({ node: _node, ...props }) => (
     <h1
       className="mt-10 scroll-m-20 text-4xl font-bold tracking-tight first:mt-0"
@@ -179,3 +182,19 @@ export const markdownComponents: Components = {
     />
   ),
 };
+
+export function createMarkdownComponents(
+  imageLightboxLabels?: ImageLightboxLabels,
+): Components {
+  return {
+    ...markdownComponents,
+    img: ({ node: _node, alt = "", ...props }) => (
+      <ImageLightbox
+        alt={alt}
+        loading="lazy"
+        labels={imageLightboxLabels}
+        {...props}
+      />
+    ),
+  };
+}

@@ -2,12 +2,17 @@ import { FileText } from "lucide-react";
 
 import { MarkdownRenderer } from "../rendering/markdown-renderer";
 import type { MarkdownDocument } from "../../domain/entities/markdown-document";
+import type { AppLocale } from "@/shared/config/preferences";
 
 type MarkdownDocumentViewProps = {
   document: MarkdownDocument;
+  locale: AppLocale;
 };
 
-export function MarkdownDocumentView({ document }: MarkdownDocumentViewProps) {
+export function MarkdownDocumentView({
+  document,
+  locale,
+}: MarkdownDocumentViewProps) {
   return (
     <article className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm">
       <header className="flex items-center gap-3 border-b bg-muted/30 px-5 py-4">
@@ -20,7 +25,7 @@ export function MarkdownDocumentView({ document }: MarkdownDocumentViewProps) {
         </div>
       </header>
       <div className="px-6 py-8 sm:px-10 sm:py-10">
-        <MarkdownRenderer source={document.source} />
+        <MarkdownRenderer source={document.source} locale={locale} />
       </div>
     </article>
   );
