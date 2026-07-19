@@ -22,6 +22,7 @@ import {
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
 import type {
   Category,
+  ContentLocale,
   DocumentCleanupResult,
   DocumentMetadata,
   DocumentStatus,
@@ -110,7 +111,7 @@ export function DocumentAdminWorkspace() {
   async function transition(
     document: VersionedManifest,
     action: string,
-    locale: "es" | "en" = "es",
+    locale: ContentLocale = "es",
   ) {
     if (action === "cleanup") {
       const remainingMinutes = cleanupRemainingMinutes(
@@ -2065,7 +2066,7 @@ function DocumentList({
   onAction: (
     document: VersionedManifest,
     action: string,
-    locale?: "es" | "en",
+    locale?: ContentLocale,
   ) => void;
 }) {
   const [status, setStatus] = useState<DocumentStatus | "all">("all");
@@ -2119,10 +2120,16 @@ function DocumentList({
                 {document.manifest.metadata.title}
               </h3>
               <p className="text-sm text-muted-foreground">
-                ES: {document.manifest.localizations.es?.status} ·{" "}
-                {document.manifest.localizations.en
-                  ? `EN: ${document.manifest.localizations.en.status} · `
-                  : "EN: pendiente · "}
+                {Object.entries(document.manifest.localizations)
+                  .flatMap(([locale, localization]) =>
+                    localization
+                      ? [
+                          `${locale.toUpperCase()}: ${localization.status}`,
+                        ]
+                      : [],
+                  )
+                  .join(" · ")}{" "}
+                ·{" "}
                 {new Date(document.manifest.updatedAt).toLocaleString()}
               </p>
             </div>
@@ -2133,12 +2140,14 @@ function DocumentList({
               >
                 Editar
               </button>
-              {document.manifest.status === "draft" ? (
+              {Object.values(document.manifest.localizations).some(
+                (localization) => localization?.status === "draft",
+              ) ? (
                 <button
                   onClick={() => onAction(document, "publish")}
                   className="button-primary"
                 >
-                  Publicar
+                  Publicar idiomas disponibles
                 </button>
               ) : null}
               {document.manifest.status === "published" ? (
@@ -2171,22 +2180,25 @@ function DocumentList({
                   </button>
                 </>
               ) : null}
-              {document.manifest.localizations.en?.status === "draft" ? (
-                <button
-                  onClick={() => onAction(document, "publish", "en")}
-                  className="button-primary"
-                >
-                  Publicar EN
-                </button>
-              ) : null}
-              {document.manifest.localizations.en?.status === "published" ? (
-                <button
-                  onClick={() => onAction(document, "unpublish", "en")}
-                  className="button-secondary"
-                >
-                  Despublicar EN
-                </button>
-              ) : null}
+              {Object.entries(document.manifest.localizations).map(
+                ([locale, localization]) =>
+                  locale !== "es" &&
+                  localization?.status === "published" ? (
+                    <button
+                      key={locale}
+                      onClick={() =>
+                        onAction(
+                          document,
+                          "unpublish",
+                          locale as ContentLocale,
+                        )
+                      }
+                      className="button-secondary"
+                    >
+                      Despublicar {locale.toUpperCase()}
+                    </button>
+                  ) : null,
+              )}
               {document.manifest.status !== "trashed" ? (
                 <button
                   onClick={() => onTrash(document)}

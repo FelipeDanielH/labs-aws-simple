@@ -3,7 +3,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { ContentManagementError } from "@/features/content-management/domain/errors";
-import type { DocumentStatus } from "@/features/content-management/domain/models";
+import {
+  contentLocales,
+  type DocumentStatus,
+} from "@/features/content-management/domain/models";
 import {
   assertSameOrigin,
   requireAdminSession,
@@ -27,7 +30,7 @@ export async function POST(request: Request, context: Context) {
     const { expectedEtag, locale } = z
       .object({
         expectedEtag: z.string().min(1),
-        locale: z.enum(["es", "en"]).default("es"),
+        locale: z.enum(contentLocales).default("es"),
       })
       .parse(await request.json());
     if (action === "cleanup") {
@@ -35,8 +38,14 @@ export async function POST(request: Request, context: Context) {
         await repository.cleanupVersions(id, expectedEtag),
       );
     }
+    if (action === "publish") {
+      const document = await repository.publishAvailable(id, expectedEtag);
+      for (const contentLocale of contentLocales) {
+        revalidatePath(`/${contentLocale}/laboratorios`);
+      }
+      return NextResponse.json(document);
+    }
     const target: Record<string, DocumentStatus> = {
-      publish: "published",
       unpublish: "draft",
       restore: "draft",
     };
@@ -50,8 +59,9 @@ export async function POST(request: Request, context: Context) {
       expectedEtag,
       locale,
     );
-    revalidatePath("/es/laboratorios");
-    revalidatePath("/en/laboratorios");
+    for (const contentLocale of contentLocales) {
+      revalidatePath(`/${contentLocale}/laboratorios`);
+    }
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);

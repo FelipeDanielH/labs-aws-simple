@@ -14,7 +14,10 @@ import { contentPaths, createShortId } from "../../application/document-paths";
 import type { DocumentRepository } from "../../application/ports/document-repository";
 import type { TaxonomyRepository } from "../../application/ports/taxonomy-repository";
 import { ContentManagementError } from "../../domain/errors";
-import { withManifestProjection } from "../../domain/models";
+import {
+  contentLocales,
+  withManifestProjection,
+} from "../../domain/models";
 import type {
   CatalogEntry,
   ContentLocale,
@@ -407,6 +410,71 @@ export class VercelBlobContentRepository
         status === "trashed" && locale === "es"
           ? now
           : current.manifest.deletedAt,
+    });
+    try {
+      const stored = await this.writeJson(
+        contentPaths.manifest(manifest.folder),
+        manifest,
+        expectedEtag,
+      );
+      await this.syncCatalogs(manifest);
+      return { manifest, etag: stored.etag };
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
+  }
+
+  async publishAvailable(
+    id: string,
+    expectedEtag: string,
+  ): Promise<VersionedManifest> {
+    const current = await this.requireManifest(id);
+    if (current.etag !== expectedEtag) this.throwConflict();
+
+    const spanish = current.manifest.localizations.es;
+    if (!spanish) this.invalid("La versión en español es obligatoria.");
+    if (spanish.status === "trashed") {
+      this.invalid("Restaura la versión en español antes de publicar.");
+    }
+
+    const localizations = { ...current.manifest.localizations };
+    const drafts = Object.entries(localizations).filter(
+      (
+        entry,
+      ): entry is [ContentLocale, DocumentLocalization] =>
+        Boolean(entry[1]?.status === "draft"),
+    );
+    if (!drafts.length) return current;
+
+    const translatedDrafts = drafts.filter(([locale]) => locale !== "es");
+    if (translatedDrafts.length && current.manifest.categoryId) {
+      const { taxonomy } = await this.get();
+      for (const [locale] of translatedDrafts) {
+        this.assertTranslatedTaxonomy(
+          taxonomy,
+          current.manifest.categoryId,
+          current.manifest.subcategoryId,
+          locale,
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    for (const [locale, localization] of drafts) {
+      localizations[locale] = {
+        ...localization,
+        status: "published",
+        updatedAt: now,
+        publishedAt: localization.publishedAt ?? now,
+        deletedAt: null,
+      };
+    }
+
+    const manifest = withManifestProjection({
+      ...current.manifest,
+      localizations,
+      updatedAt: now,
+      deletedAt: null,
     });
     try {
       const stored = await this.writeJson(
@@ -884,14 +952,18 @@ export class VercelBlobContentRepository
     if (locale === "es" || !categoryId) return;
     const category = taxonomy.categories.find((item) => item.id === categoryId);
     if (!category?.localizations[locale]) {
-      this.invalid("La categoría no tiene traducción al inglés.");
+      this.invalid(
+        `La categoría no tiene traducción para ${locale.toUpperCase()}.`,
+      );
     }
     if (
       subcategoryId &&
       !category.subcategories.find((item) => item.id === subcategoryId)
         ?.localizations[locale]
     ) {
-      this.invalid("La subcategoría no tiene traducción al inglés.");
+      this.invalid(
+        `La subcategoría no tiene traducción para ${locale.toUpperCase()}.`,
+      );
     }
   }
 
@@ -999,7 +1071,7 @@ function toCatalogEntry(
   const localization = manifest.localizations[locale];
   if (!localization || localization.status !== "published") return null;
   const alternateSlugs: CatalogEntry["alternateSlugs"] = {};
-  for (const candidate of ["es", "en"] as const) {
+  for (const candidate of contentLocales) {
     const alternate = manifest.localizations[candidate];
     if (alternate?.status === "published") {
       alternateSlugs[candidate] = alternate.slug;

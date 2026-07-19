@@ -219,6 +219,112 @@ describe("VercelBlobContentRepository", () => {
     expect(blobMocks.del).not.toHaveBeenCalledWith(markdownPath);
   });
 
+  it("publica en una sola operación todos los idiomas disponibles", async () => {
+    const manifest = createManifest();
+    manifest.localizations.en = {
+      ...manifest.localizations.es!,
+      locale: "en",
+      slug: "laboratory",
+      originalFileName: "laboratory.md",
+      content: {
+        ...manifest.content,
+        pathname:
+          "aws-labs/v1/documents/laboratorio-abc123/en/document-current.md",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (input: string | URL | Request) =>
+          new Response(
+            String(input).includes("manifest.json")
+              ? JSON.stringify(manifest)
+              : "# Markdown",
+            { status: 200 },
+          ),
+      ),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.publishAvailable(
+      "document-1",
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.localizations.es?.status).toBe("published");
+    expect(document.manifest.localizations.en?.status).toBe("published");
+    expect(document.manifest.localizations.es?.publishedAt).toBeTruthy();
+    expect(document.manifest.localizations.en?.publishedAt).toBeTruthy();
+    expect(document.manifest.localizations.en?.publishedAt).toBe(
+      document.manifest.localizations.es?.publishedAt,
+    );
+    expect(
+      blobMocks.put.mock.calls.filter(
+        ([pathname]) => pathname === manifestPath,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("publica sólo español cuando no existen otras traducciones", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.publishAvailable(
+      "document-1",
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.localizations.es?.status).toBe("published");
+    expect(document.manifest.localizations.en).toBeUndefined();
+  });
+
+  it("publica una traducción agregada después de publicar español", async () => {
+    const manifest = createManifest();
+    manifest.localizations.es = {
+      ...manifest.localizations.es!,
+      status: "published",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+    };
+    manifest.status = "published";
+    manifest.publishedAt = manifest.localizations.es.publishedAt;
+    manifest.localizations.en = {
+      ...manifest.localizations.es,
+      locale: "en",
+      slug: "laboratory",
+      originalFileName: "laboratory.md",
+      status: "draft",
+      publishedAt: null,
+      content: {
+        ...manifest.content,
+        pathname:
+          "aws-labs/v1/documents/laboratorio-abc123/en/document-current.md",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (input: string | URL | Request) =>
+          new Response(
+            String(input).includes("manifest.json")
+              ? JSON.stringify(manifest)
+              : "# Markdown",
+            { status: 200 },
+          ),
+      ),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.publishAvailable(
+      "document-1",
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.localizations.es?.publishedAt).toBe(
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(document.manifest.localizations.en?.status).toBe("published");
+    expect(document.manifest.localizations.en?.publishedAt).toBeTruthy();
+  });
+
   it("reemplaza el Markdown y el manifiesto de imágenes de una reimportación", async () => {
     const repository = new VercelBlobContentRepository();
 

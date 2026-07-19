@@ -24,6 +24,10 @@ export interface DocumentRepository {
     id: string,
     input: ReplaceDocumentInput,
   ): Promise<VersionedDocument>;
+  publishAvailable(
+    id: string,
+    expectedEtag: string,
+  ): Promise<VersionedManifest>;
   transition(
     id: string,
     status: DocumentStatus,
