@@ -1,7 +1,7 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { useEffect, useMemo, useState } from "react";
+import { Activity, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import {
@@ -34,7 +34,6 @@ import type {
   ContentLocale,
   DocumentCleanupResult,
   DocumentMetadata,
-  DocumentStatus,
   Taxonomy,
   VersionedDocument,
   VersionedManifest,
@@ -49,6 +48,13 @@ import {
 } from "@/features/content-management/infrastructure/browser/direct-content-converter";
 import { adminRequest } from "@/features/content-management/presentation/admin-api";
 import {
+  browserAdminPreferenceStorage,
+  isDocumentStatusFilter,
+  persistDocumentStatusFilter,
+  readDocumentStatusFilter,
+  type DocumentStatusFilter,
+} from "@/features/admin/ui/admin-preferences";
+import {
   MarkdownRenderer,
   transformMarkdownUrl,
 } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
@@ -62,6 +68,12 @@ const emptyMetadata: DocumentMetadata = {
   extra: {},
 };
 
+type ManagementTab = "documents" | "categories";
+const managementTabs = [
+  ["documents", "Documentos"],
+  ["categories", "Categorías"],
+] as const satisfies readonly (readonly [ManagementTab, string])[];
+
 export function DocumentAdminWorkspace() {
   const router = useRouter();
   const [documents, setDocuments] = useState<VersionedManifest[]>([]);
@@ -74,6 +86,8 @@ export function DocumentAdminWorkspace() {
   >({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [managementTab, setManagementTab] =
+    useState<ManagementTab>("documents");
 
   async function refresh() {
     setLoading(true);
@@ -296,22 +310,97 @@ export function DocumentAdminWorkspace() {
           }}
         />
       ) : null}
-      <DocumentList
-        documents={documents}
-        loading={loading}
-        onEdit={openDocument}
-        onTrash={trash}
-        onAction={transition}
-        onUnpublish={(document, locales) =>
-          transition(document, "unpublish", "es", locales)
-        }
-      />
-      {taxonomyState ? (
-        <TaxonomyManager
-          value={taxonomyState}
-          onSaved={(value) => setTaxonomyState(value)}
-        />
-      ) : null}
+      <section className="overflow-hidden rounded-2xl border bg-card">
+        <div className="border-b px-6 pt-6">
+          <h2 className="text-2xl font-semibold">Gestión del contenido</h2>
+          <p className="text-sm text-muted-foreground">
+            Administra los documentos y su clasificación desde un solo lugar.
+          </p>
+          <div
+            className="mt-5 flex gap-6"
+            role="tablist"
+            aria-label="Gestión del contenido"
+            onKeyDown={(event) => {
+              if (
+                event.key !== "ArrowLeft" &&
+                event.key !== "ArrowRight" &&
+                event.key !== "Home" &&
+                event.key !== "End"
+              )
+                return;
+              event.preventDefault();
+              const nextTab =
+                event.key === "ArrowLeft" || event.key === "End"
+                  ? "categories"
+                  : "documents";
+              setManagementTab(nextTab);
+              document.getElementById(`management-tab-${nextTab}`)?.focus();
+            }}
+          >
+            {managementTabs.map(([tab, label]) => (
+              <button
+                key={tab}
+                id={`management-tab-${tab}`}
+                type="button"
+                role="tab"
+                aria-selected={managementTab === tab}
+                aria-controls={`management-panel-${tab}`}
+                tabIndex={managementTab === tab ? 0 : -1}
+                onClick={() => setManagementTab(tab)}
+                className={`-mb-px border-b-2 px-1 pb-3 text-sm font-semibold transition-colors ${
+                  managementTab === tab
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="p-6">
+          <Activity
+            mode={managementTab === "documents" ? "visible" : "hidden"}
+          >
+            <div
+              id="management-panel-documents"
+              role="tabpanel"
+              aria-labelledby="management-tab-documents"
+              tabIndex={0}
+            >
+              <DocumentList
+                documents={documents}
+                loading={loading}
+                onEdit={openDocument}
+                onTrash={trash}
+                onAction={transition}
+                onUnpublish={(document, locales) =>
+                  transition(document, "unpublish", "es", locales)
+                }
+              />
+            </div>
+          </Activity>
+          <Activity
+            mode={managementTab === "categories" ? "visible" : "hidden"}
+          >
+            <div
+              id="management-panel-categories"
+              role="tabpanel"
+              aria-labelledby="management-tab-categories"
+              tabIndex={0}
+            >
+              {taxonomyState ? (
+                <TaxonomyManager
+                  value={taxonomyState}
+                  onSaved={(value) => setTaxonomyState(value)}
+                />
+              ) : (
+                <p>Cargando categorías…</p>
+              )}
+            </div>
+          </Activity>
+        </div>
+      </section>
     </div>
   );
 }
@@ -2097,7 +2186,9 @@ function DocumentList({
     locales: ContentLocale[],
   ) => void;
 }) {
-  const [status, setStatus] = useState<DocumentStatus | "all">("all");
+  const [status, setStatus] = useState<DocumentStatusFilter>(
+    () => readDocumentStatusFilter(browserAdminPreferenceStorage()),
+  );
   const [page, setPage] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -2114,22 +2205,34 @@ function DocumentList({
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const visible = filtered.slice(page * 10, page * 10 + 10);
   return (
-    <section className="space-y-4 rounded-2xl border bg-card p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold">Documentos</h2>
-        <select
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value as typeof status);
-            setPage(0);
-          }}
-          className="rounded-lg border bg-background px-3 py-2"
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <label
+          htmlFor="document-status-filter"
+          className="flex items-center gap-2 text-sm font-medium"
         >
-          <option value="all">Todos</option>
-          <option value="draft">Borradores</option>
-          <option value="published">Publicados</option>
-          <option value="trashed">Papelera</option>
-        </select>
+          <span>Mostrar</span>
+          <select
+            id="document-status-filter"
+            value={status}
+            onChange={(event) => {
+              const nextStatus = event.target.value;
+              if (!isDocumentStatusFilter(nextStatus)) return;
+              setStatus(nextStatus);
+              persistDocumentStatusFilter(
+                browserAdminPreferenceStorage(),
+                nextStatus,
+              );
+              setPage(0);
+            }}
+            className="rounded-lg border bg-background px-3 py-2"
+          >
+            <option value="all">Todos</option>
+            <option value="draft">Borradores</option>
+            <option value="published">Publicados</option>
+            <option value="trashed">Papelera</option>
+          </select>
+        </label>
       </div>
       {loading ? <p>Cargando…</p> : null}
       {!loading && !visible.length ? (
@@ -2256,7 +2359,7 @@ function DocumentList({
           </button>
         </div>
       ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -2495,10 +2598,9 @@ function TaxonomyManager({
     }
   }
   return (
-    <section className="space-y-4 rounded-2xl border bg-card p-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">Categorías</h2>
           <p className="text-sm text-muted-foreground">
             Dos niveles controlados: categoría y subcategoría.
           </p>
@@ -2627,7 +2729,7 @@ function TaxonomyManager({
       <button onClick={save} className="button-primary">
         Guardar taxonomía
       </button>
-    </section>
+    </div>
   );
 }
 
@@ -2652,6 +2754,7 @@ function emptyTaxonomy(): Taxonomy {
     updatedAt: new Date(0).toISOString(),
   };
 }
+
 function messageOf(error: unknown) {
   return error instanceof Error
     ? error.message
