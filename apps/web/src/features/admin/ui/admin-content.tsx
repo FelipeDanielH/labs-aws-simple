@@ -1,6 +1,7 @@
 "use client";
 
 import { DocumentAdminWorkspace } from "./document-admin-workspace";
+import { MigrationControls } from "./migration-controls";
 import { messages } from "@/shared/config/translations";
 import { usePreferencesStore } from "@/shared/store/preferences-store";
 
@@ -18,6 +19,7 @@ export function AdminContent() {
         <p className="text-lg text-muted-foreground">{copy.description}</p>
       </div>
       <DocumentAdminWorkspace />
+      <MigrationControls />
     </main>
   );
 }
