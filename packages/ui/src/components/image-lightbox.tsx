@@ -170,15 +170,15 @@ export function ImageLightbox({
       </DialogPrimitive.Trigger>
 
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm"
-          onPointerDown={() => handleOpenChange(false)}
-        />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm" />
         <DialogPrimitive.Content
           className={cn(
             "pointer-events-none fixed inset-0 z-[101] grid grid-rows-[4.5rem_minmax(0,1fr)]",
             "outline-none",
           )}
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) handleOpenChange(false);
+          }}
         >
           <DialogPrimitive.Title className="sr-only">
             {labels.dialogTitle}: {imageName}
