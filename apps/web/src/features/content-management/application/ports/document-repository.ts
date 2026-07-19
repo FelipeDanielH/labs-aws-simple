@@ -28,6 +28,11 @@ export interface DocumentRepository {
     id: string,
     expectedEtag: string,
   ): Promise<VersionedManifest>;
+  unpublishSelected(
+    id: string,
+    locales: ContentLocale[],
+    expectedEtag: string,
+  ): Promise<VersionedManifest>;
   transition(
     id: string,
     status: DocumentStatus,

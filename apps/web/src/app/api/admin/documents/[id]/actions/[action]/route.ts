@@ -27,10 +27,11 @@ export async function POST(request: Request, context: Context) {
       revalidatePath("/laboratorios");
       return NextResponse.json({ ok: true });
     }
-    const { expectedEtag, locale } = z
+    const { expectedEtag, locale, locales } = z
       .object({
         expectedEtag: z.string().min(1),
         locale: z.enum(contentLocales).default("es"),
+        locales: z.array(z.enum(contentLocales)).min(1).optional(),
       })
       .parse(await request.json());
     if (action === "cleanup") {
@@ -40,6 +41,17 @@ export async function POST(request: Request, context: Context) {
     }
     if (action === "publish") {
       const document = await repository.publishAvailable(id, expectedEtag);
+      for (const contentLocale of contentLocales) {
+        revalidatePath(`/${contentLocale}/laboratorios`);
+      }
+      return NextResponse.json(document);
+    }
+    if (action === "unpublish" && locales) {
+      const document = await repository.unpublishSelected(
+        id,
+        locales,
+        expectedEtag,
+      );
       for (const contentLocale of contentLocales) {
         revalidatePath(`/${contentLocale}/laboratorios`);
       }

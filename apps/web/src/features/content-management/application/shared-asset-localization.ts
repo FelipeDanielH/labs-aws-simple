@@ -11,6 +11,24 @@ export type SharedUploadedAsset = {
   sha256: string;
 };
 
+export function missingSharedAssetReferences(
+  references: string[],
+  sharedAssets: LocalizedAssetReference[],
+): string[] {
+  const available = new Set(
+    sharedAssets.flatMap((asset) => [
+      normalizeSharedAssetReference(asset.relativePath),
+      ...(asset.placeholder
+        ? [normalizeSharedAssetReference(asset.placeholder)]
+        : []),
+    ]),
+  );
+  return references.filter(
+    (reference) =>
+      !available.has(normalizeSharedAssetReference(reference)),
+  );
+}
+
 export function resolveSharedAssetReferences(
   source: string,
   translatedAssets: LocalizedAssetReference[],
@@ -47,9 +65,21 @@ export function resolveSharedAssetReferences(
       (candidate) => candidate.index === spanish.index,
     );
     if (!target) continue;
+    const replacement = `./${target.relativePath}`;
+    if (spanish.placeholder) {
+      resolved = resolved.replaceAll(spanish.placeholder, replacement);
+    }
     resolved = resolved
-      .replaceAll(`./${spanish.relativePath}`, `./${target.relativePath}`)
+      .replaceAll(`./${spanish.relativePath}`, replacement)
       .replaceAll(spanish.relativePath, target.relativePath);
   }
   return resolved;
+}
+
+function normalizeSharedAssetReference(value: string): string {
+  return value
+    .split(/[?#]/u)[0]
+    .replaceAll("\\", "/")
+    .replace(/^\.\//u, "")
+    .replace(/^assets\//u, "");
 }

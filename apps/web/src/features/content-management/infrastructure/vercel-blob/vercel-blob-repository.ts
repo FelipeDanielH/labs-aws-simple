@@ -489,6 +489,73 @@ export class VercelBlobContentRepository
     }
   }
 
+  async unpublishSelected(
+    id: string,
+    locales: ContentLocale[],
+    expectedEtag: string,
+  ): Promise<VersionedManifest> {
+    const current = await this.requireManifest(id);
+    if (current.etag !== expectedEtag) this.throwConflict();
+
+    const selectedLocales = [...new Set(locales)];
+    if (!selectedLocales.length) {
+      this.invalid("Selecciona al menos un idioma para despublicar.");
+    }
+    for (const locale of selectedLocales) {
+      if (
+        current.manifest.localizations[locale]?.status !== "published"
+      ) {
+        this.invalid(
+          `La versión ${locale.toUpperCase()} no está publicada.`,
+        );
+      }
+    }
+
+    if (selectedLocales.includes("es")) {
+      const omittedPublishedLocale = Object.entries(
+        current.manifest.localizations,
+      ).find(
+        ([locale, localization]) =>
+          localization?.status === "published" &&
+          !selectedLocales.includes(locale as ContentLocale),
+      );
+      if (omittedPublishedLocale) {
+        this.invalid(
+          "Al despublicar español debes incluir todos los idiomas publicados.",
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    const localizations = { ...current.manifest.localizations };
+    for (const locale of selectedLocales) {
+      const localization = localizations[locale]!;
+      localizations[locale] = {
+        ...localization,
+        status: "draft",
+        updatedAt: now,
+        deletedAt: null,
+      };
+    }
+
+    const manifest = withManifestProjection({
+      ...current.manifest,
+      localizations,
+      updatedAt: now,
+    });
+    try {
+      const stored = await this.writeJson(
+        contentPaths.manifest(manifest.folder),
+        manifest,
+        expectedEtag,
+      );
+      await this.syncCatalogs(manifest);
+      return { manifest, etag: stored.etag };
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
+  }
+
   async purge(id: string): Promise<void> {
     const current = await this.requireManifest(id);
     if (current.manifest.localizations.es?.status !== "trashed") {

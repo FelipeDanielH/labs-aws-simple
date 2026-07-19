@@ -325,6 +325,69 @@ describe("VercelBlobContentRepository", () => {
     expect(document.manifest.localizations.en?.publishedAt).toBeTruthy();
   });
 
+  it("despublica sólo los idiomas seleccionados", async () => {
+    const manifest = publishedMultilingualManifest();
+    vi.stubGlobal(
+      "fetch",
+      manifestFetch(manifest),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.unpublishSelected(
+      "document-1",
+      ["en"],
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.localizations.es?.status).toBe("published");
+    expect(document.manifest.localizations.en?.status).toBe("draft");
+    expect(document.manifest.status).toBe("published");
+  });
+
+  it("despublica todos los idiomas seleccionados en una sola operación", async () => {
+    const manifest = publishedMultilingualManifest();
+    vi.stubGlobal(
+      "fetch",
+      manifestFetch(manifest),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.unpublishSelected(
+      "document-1",
+      ["es", "en"],
+      "current-manifest-etag",
+    );
+
+    expect(document.manifest.localizations.es?.status).toBe("draft");
+    expect(document.manifest.localizations.en?.status).toBe("draft");
+    expect(document.manifest.status).toBe("draft");
+    expect(
+      blobMocks.put.mock.calls.filter(
+        ([pathname]) => pathname === manifestPath,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("impide despublicar español sin incluir los demás idiomas publicados", async () => {
+    const manifest = publishedMultilingualManifest();
+    vi.stubGlobal(
+      "fetch",
+      manifestFetch(manifest),
+    );
+    const repository = new VercelBlobContentRepository();
+
+    await expect(
+      repository.unpublishSelected(
+        "document-1",
+        ["es"],
+        "current-manifest-etag",
+      ),
+    ).rejects.toThrow(
+      "Al despublicar español debes incluir todos los idiomas publicados",
+    );
+    expect(blobMocks.put).not.toHaveBeenCalled();
+  });
+
   it("reemplaza el Markdown y el manifiesto de imágenes de una reimportación", async () => {
     const repository = new VercelBlobContentRepository();
 
@@ -572,4 +635,39 @@ function createManifest(): DocumentManifest {
     publishedAt: null,
     deletedAt: null,
   };
+}
+
+function publishedMultilingualManifest(): DocumentManifest {
+  const manifest = createManifest();
+  manifest.localizations.es = {
+    ...manifest.localizations.es!,
+    status: "published",
+    publishedAt: "2026-01-01T00:00:00.000Z",
+  };
+  manifest.localizations.en = {
+    ...manifest.localizations.es,
+    locale: "en",
+    slug: "laboratory",
+    originalFileName: "laboratory.md",
+    content: {
+      ...manifest.content,
+      pathname:
+        "aws-labs/v1/documents/laboratorio-abc123/en/document-current.md",
+    },
+  };
+  manifest.status = "published";
+  manifest.publishedAt = manifest.localizations.es.publishedAt;
+  return manifest;
+}
+
+function manifestFetch(manifest: DocumentManifest) {
+  return vi.fn(
+    async (input: string | URL | Request) =>
+      new Response(
+        String(input).includes("manifest.json")
+          ? JSON.stringify(manifest)
+          : "# Markdown",
+        { status: 200 },
+      ),
+  );
 }

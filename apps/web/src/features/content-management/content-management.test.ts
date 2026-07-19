@@ -16,7 +16,10 @@ import {
   createDocumentSchema,
   taxonomySchema,
 } from "./infrastructure/validation/schemas";
-import { resolveSharedAssetReferences } from "./application/shared-asset-localization";
+import {
+  missingSharedAssetReferences,
+  resolveSharedAssetReferences,
+} from "./application/shared-asset-localization";
 import {
   finalizeTaxonomyLocalizations,
   updateLocalizedTaxonomyName,
@@ -130,6 +133,23 @@ describe("content management contracts", () => {
         uploaded,
       ),
     ).toBe("![Diagram](./images/stored.png)");
+    expect(
+      resolveSharedAssetReferences(
+        "![Diagram](__DOCX_ASSET_0__)",
+        [],
+        shared,
+        uploaded,
+      ),
+    ).toBe("![Diagram](./images/stored.png)");
+    expect(
+      missingSharedAssetReferences(
+        ["__DOCX_ASSET_0__", "./images/es.png"],
+        shared,
+      ),
+    ).toEqual([]);
+    expect(
+      missingSharedAssetReferences(["__DOCX_ASSET_9__"], shared),
+    ).toEqual(["__DOCX_ASSET_9__"]);
     expect(() =>
       resolveSharedAssetReferences(
         "![New](new.png)",

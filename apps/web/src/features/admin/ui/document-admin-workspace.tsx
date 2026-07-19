@@ -3,6 +3,12 @@
 import { upload } from "@vercel/blob/client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@workspace/ui/components/popover";
 import {
   injectControlledBase,
   processHtmlContent,
@@ -14,7 +20,10 @@ import {
   slugify,
 } from "@/features/content-management/application/document-paths";
 import { cleanupRemainingMinutes } from "@/features/content-management/application/document-retention";
-import { resolveSharedAssetReferences } from "@/features/content-management/application/shared-asset-localization";
+import {
+  missingSharedAssetReferences,
+  resolveSharedAssetReferences,
+} from "@/features/content-management/application/shared-asset-localization";
 import {
   finalizeTaxonomyLocalizations,
   updateLocalizedTaxonomyName,
@@ -112,6 +121,7 @@ export function DocumentAdminWorkspace() {
     document: VersionedManifest,
     action: string,
     locale: ContentLocale = "es",
+    locales?: ContentLocale[],
   ) {
     if (action === "cleanup") {
       const remainingMinutes = cleanupRemainingMinutes(
@@ -163,7 +173,11 @@ export function DocumentAdminWorkspace() {
       } else {
         const updated = await adminRequest<VersionedManifest>(url, {
           method: "POST",
-          body: JSON.stringify({ expectedEtag: document.etag, locale }),
+          body: JSON.stringify({
+            expectedEtag: document.etag,
+            locale,
+            locales,
+          }),
         });
         setDocuments((current) => upsertDocument(current, updated));
         setDocumentCache((current) => {
@@ -288,6 +302,9 @@ export function DocumentAdminWorkspace() {
         onEdit={openDocument}
         onTrash={trash}
         onAction={transition}
+        onUnpublish={(document, locales) =>
+          transition(document, "unpublish", "es", locales)
+        }
       />
       {taxonomyState ? (
         <TaxonomyManager
@@ -1098,12 +1115,12 @@ type TranslationDraft = {
   validationError: string | null;
 };
 
-function normalizeAssetReference(value: string): string {
-  return value
-    .split(/[?#]/u)[0]
-    .replaceAll("\\", "/")
-    .replace(/^\.\//u, "")
-    .replace(/^assets\//u, "");
+function storedDocxAssetPlaceholder(asset: { originalName: string }) {
+  const match = /^image-(\d+)\.[^.]+$/iu.exec(asset.originalName);
+  if (!match) return null;
+  const ordinal = Number(match[1]);
+  if (!Number.isInteger(ordinal) || ordinal < 1) return null;
+  return `__DOCX_ASSET_${ordinal - 1}__`;
 }
 
 function fileNameForTitle(
@@ -1224,13 +1241,9 @@ function TranslationDraftPanel({
         kind === "html"
           ? processHtmlContent(source).localReferences
           : markdownLocalAssetReferences(source);
-      const available = new Set(
-        sharedAssets.map((asset) =>
-          normalizeAssetReference(asset.relativePath),
-        ),
-      );
-      const missing = references.filter(
-        (reference) => !available.has(normalizeAssetReference(reference)),
+      const missing = missingSharedAssetReferences(
+        references,
+        sharedAssets,
       );
       return missing.length
         ? `No se encontraron estos recursos en la versión en español: ${missing.join(", ")}`
@@ -1405,7 +1418,17 @@ function TranslationDraftPanel({
                 key={`${asset.index}-${asset.relativePath}`}
                 className="break-all font-mono"
               >
-                {asset.relativePath}
+                {asset.placeholder ? (
+                  <>
+                    {asset.placeholder}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      → {asset.relativePath}
+                    </span>
+                  </>
+                ) : (
+                  asset.relativePath
+                )}
               </li>
             ))}
           </ul>
@@ -1755,7 +1778,7 @@ function EnglishDocumentEditor({
           index,
           sha256: asset.sha256,
           relativePath: asset.relativePath,
-          placeholder: null,
+          placeholder: storedDocxAssetPlaceholder(asset),
         }));
         nextSource = resolveSharedAssetReferences(
           draft.source,
@@ -1838,7 +1861,7 @@ function EnglishDocumentEditor({
             index,
             sha256: asset.sha256,
             relativePath: asset.relativePath,
-            placeholder: null,
+            placeholder: storedDocxAssetPlaceholder(asset),
           }))}
           sharedBaseUrl={
             document.manifest.localizations.es?.content.assetBaseUrl ??
@@ -2058,6 +2081,7 @@ function DocumentList({
   onEdit,
   onTrash,
   onAction,
+  onUnpublish,
 }: {
   documents: VersionedManifest[];
   loading: boolean;
@@ -2067,6 +2091,10 @@ function DocumentList({
     document: VersionedManifest,
     action: string,
     locale?: ContentLocale,
+  ) => void;
+  onUnpublish: (
+    document: VersionedManifest,
+    locales: ContentLocale[],
   ) => void;
 }) {
   const [status, setStatus] = useState<DocumentStatus | "all">("all");
@@ -2150,55 +2178,36 @@ function DocumentList({
                   Publicar idiomas disponibles
                 </button>
               ) : null}
-              {document.manifest.status === "published" ? (
-                <>
-                  <button
-                    onClick={() => onAction(document, "unpublish")}
-                    className="button-secondary"
-                  >
-                    Despublicar
-                  </button>
-                  <button
-                    aria-disabled={
-                      cleanupRemainingMinutes(
-                        document.manifest.updatedAt,
-                        now,
-                      ) > 0
-                    }
-                    title={cleanupButtonTitle(document.manifest.updatedAt, now)}
-                    onClick={() => onAction(document, "cleanup")}
-                    className={`button-secondary ${
-                      cleanupRemainingMinutes(
-                        document.manifest.updatedAt,
-                        now,
-                      ) > 0
-                        ? "cursor-not-allowed opacity-50"
-                        : ""
-                    }`}
-                  >
-                    Limpiar versiones
-                  </button>
-                </>
+              {Object.values(document.manifest.localizations).some(
+                (localization) => localization?.status === "published",
+              ) ? (
+                <UnpublishLocalesMenu
+                  document={document}
+                  onConfirm={onUnpublish}
+                />
               ) : null}
-              {Object.entries(document.manifest.localizations).map(
-                ([locale, localization]) =>
-                  locale !== "es" &&
-                  localization?.status === "published" ? (
-                    <button
-                      key={locale}
-                      onClick={() =>
-                        onAction(
-                          document,
-                          "unpublish",
-                          locale as ContentLocale,
-                        )
-                      }
-                      className="button-secondary"
-                    >
-                      Despublicar {locale.toUpperCase()}
-                    </button>
-                  ) : null,
-              )}
+              {document.manifest.status === "published" ? (
+                <button
+                  aria-disabled={
+                    cleanupRemainingMinutes(
+                      document.manifest.updatedAt,
+                      now,
+                    ) > 0
+                  }
+                  title={cleanupButtonTitle(document.manifest.updatedAt, now)}
+                  onClick={() => onAction(document, "cleanup")}
+                  className={`button-secondary ${
+                    cleanupRemainingMinutes(
+                      document.manifest.updatedAt,
+                      now,
+                    ) > 0
+                      ? "cursor-not-allowed opacity-50"
+                      : ""
+                  }`}
+                >
+                  Limpiar versiones
+                </button>
+              ) : null}
               {document.manifest.status !== "trashed" ? (
                 <button
                   onClick={() => onTrash(document)}
@@ -2249,6 +2258,148 @@ function DocumentList({
       ) : null}
     </section>
   );
+}
+
+function UnpublishLocalesMenu({
+  document,
+  onConfirm,
+}: {
+  document: VersionedManifest;
+  onConfirm: (
+    document: VersionedManifest,
+    locales: ContentLocale[],
+  ) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<ContentLocale[]>([]);
+  const publishedLocales = Object.entries(
+    document.manifest.localizations,
+  ).flatMap(([locale, localization]) =>
+    localization?.status === "published"
+      ? [locale as ContentLocale]
+      : [],
+  );
+  const allSelected =
+    publishedLocales.length > 0 &&
+    selected.length === publishedLocales.length;
+
+  function toggleLocale(locale: ContentLocale, checked: boolean) {
+    setSelected((current) => {
+      if (checked) return [...new Set([...current, locale])];
+      return current.filter((item) => item !== locale);
+    });
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setSelected([]);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="button-secondary inline-flex items-center gap-2"
+          aria-label="Elegir idiomas para despublicar"
+        >
+          Despublicar
+          {selected.length ? (
+            <span className="rounded-full bg-muted px-1.5 text-xs">
+              {allSelected ? "Todos" : selected.length}
+            </span>
+          ) : null}
+          <ChevronDown className="size-4" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-0">
+        <fieldset className="space-y-1 p-3">
+          <legend className="px-1 pb-2 text-sm font-semibold">
+            Idiomas publicados
+          </legend>
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={(event) =>
+                setSelected(
+                  event.target.checked ? publishedLocales : [],
+                )
+              }
+              className="size-4 accent-primary"
+            />
+            <span className="font-medium">Todos</span>
+            <span className="text-muted-foreground">
+              Español y traducciones
+            </span>
+          </label>
+          {publishedLocales
+            .filter((locale) => locale !== "es")
+            .map((locale) => (
+              <label
+                key={locale}
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(locale)}
+                  onChange={(event) =>
+                    toggleLocale(locale, event.target.checked)
+                  }
+                  className="size-4 accent-primary"
+                />
+                <span className="font-medium">
+                  {locale.toUpperCase()}
+                </span>
+                <span className="text-muted-foreground">
+                  {contentLocaleName(locale)}
+                </span>
+              </label>
+            ))}
+        </fieldset>
+        {publishedLocales.includes("es") ? (
+          <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+            “Todos” despublica español junto con todas sus traducciones
+            publicadas.
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 border-t p-3">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              setSelected([]);
+              setOpen(false);
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="button-danger disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!selected.length}
+            onClick={() => {
+              const locales = [...selected];
+              setSelected([]);
+              setOpen(false);
+              onConfirm(document, locales);
+            }}
+          >
+            Despublicar seleccionados
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function contentLocaleName(locale: ContentLocale) {
+  const names: Partial<Record<ContentLocale, string>> = {
+    es: "Español",
+    en: "Inglés",
+  };
+  return names[locale] ?? locale.toUpperCase();
 }
 
 function TaxonomyManager({
