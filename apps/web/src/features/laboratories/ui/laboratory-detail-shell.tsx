@@ -11,6 +11,7 @@ import {
 } from "./laboratory-table-of-contents";
 import type { MarkdownTableOfContentsItem } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
 import { messages } from "@/shared/config/translations";
+import { IntentPrefetchLink } from "@/shared/ui/intent-prefetch-link";
 
 export type LaboratoryNavigationItem = {
   id: string;
@@ -103,7 +104,7 @@ export function LaboratoryDetailShell({
 
                   return (
                     <li key={laboratory.id}>
-                      <Link
+                      <IntentPrefetchLink
                         href={`/${locale}/laboratorios/${laboratory.slug}`}
                         aria-current={isCurrent ? "page" : undefined}
                         className={
@@ -113,7 +114,7 @@ export function LaboratoryDetailShell({
                         }
                       >
                         {laboratory.title}
-                      </Link>
+                      </IntentPrefetchLink>
                     </li>
                   );
                 })}

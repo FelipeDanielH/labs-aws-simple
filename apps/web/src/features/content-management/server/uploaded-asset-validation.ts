@@ -1,4 +1,4 @@
-import { head } from "@vercel/blob";
+import { get } from "@vercel/blob";
 
 import {
   assertSafeBlobPath,
@@ -23,6 +23,7 @@ export type UploadedAssetClaim = {
 export async function validateUploadedAssets(
   uploaded: UploadedAssetClaim[],
   allowedPathnames: string[],
+  reusableAssets: UploadedAssetClaim[] = [],
 ): Promise<UploadedAssetInput[]> {
   let totalSize = 0;
   const assets: UploadedAssetInput[] = [];
@@ -30,24 +31,54 @@ export async function validateUploadedAssets(
   for (const asset of uploaded) {
     assertSafeBlobPath(asset.pathname);
     if (!allowedPathnames.includes(asset.pathname)) {
-      throw new Error("Un recurso no pertenece al documento.");
+      const reusable = reusableAssets.find(
+        (candidate) =>
+          candidate.pathname === asset.pathname &&
+          candidate.url === asset.url &&
+          candidate.relativePath === asset.relativePath &&
+          candidate.contentType === asset.contentType &&
+          candidate.size === asset.size &&
+          candidate.sha256 === asset.sha256,
+      );
+      if (!reusable) {
+        throw new Error("Un recurso no pertenece al documento.");
+      }
+      totalSize += reusable.size;
+      if (totalSize > 100 * 1024 * 1024) {
+        throw new Error("Los recursos superan 100 MiB.");
+      }
+      assets.push({
+        originalName: asset.originalName,
+        relativePath: reusable.relativePath,
+        pathname: reusable.pathname,
+        url: reusable.url,
+        contentType: reusable.contentType,
+        size: reusable.size,
+        sha256: reusable.sha256,
+      });
+      continue;
     }
-    const stored = await head(asset.pathname);
+    const stored = await get(asset.pathname, {
+      access: "public",
+      useCache: false,
+    });
     if (
-      stored.url !== asset.url ||
-      stored.size !== asset.size ||
-      stored.contentType !== asset.contentType
+      !stored ||
+      stored.statusCode !== 200 ||
+      stored.blob.url !== asset.url ||
+      stored.blob.size !== asset.size ||
+      stored.blob.contentType !== asset.contentType
     ) {
       throw new Error("Un recurso subido no coincide con lo reservado.");
     }
-    const response = await fetch(stored.url, { cache: "no-store" });
-    if (!response.ok) throw new Error("No se pudo validar un recurso subido.");
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = new Uint8Array(
+      await new Response(stored.stream).arrayBuffer(),
+    );
     if ((await sha256(bytes)) !== asset.sha256) {
       throw new Error("El hash de un recurso subido no coincide.");
     }
-    assertAssetSignature(bytes, stored.contentType, asset.originalName);
-    if (stored.contentType === "text/css") {
+    assertAssetSignature(bytes, stored.blob.contentType, asset.originalName);
+    if (stored.blob.contentType === "text/css") {
       const css = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       for (const reference of collectCssReferences(css, new Set(), true)) {
         nestedReferences.push(
@@ -58,7 +89,7 @@ export async function validateUploadedAssets(
         );
       }
     }
-    totalSize += stored.size;
+    totalSize += stored.blob.size;
     if (totalSize > 100 * 1024 * 1024) {
       throw new Error("Los recursos superan 100 MiB.");
     }

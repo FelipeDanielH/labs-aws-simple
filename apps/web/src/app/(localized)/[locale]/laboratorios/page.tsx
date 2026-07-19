@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
-import { getContentRepository } from "@/features/content-management/server/container";
+import {
+  getCachedPublicCatalog,
+  getCachedTaxonomy,
+} from "@/features/content-management/server/cached-content";
 import { LaboratoriesContent } from "@/features/laboratories/ui/laboratories-content";
 import { localizeTaxonomy } from "@/shared/config/locale-routing";
 import { assertContentLocale } from "@/shared/config/route-locale";
 
-export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ locale: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -22,18 +25,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       };
 }
 
-export default async function LaboratoriesPage({ params }: Props) {
+export default function LaboratoriesPage({ params }: Props) {
+  return (
+    <Suspense fallback={<main aria-busy="true" className="min-h-screen" />}>
+      <Laboratories params={params} />
+    </Suspense>
+  );
+}
+
+async function Laboratories({ params }: Props) {
   const { locale } = await params;
   assertContentLocale(locale);
-  const repository = getContentRepository();
   const [catalog, taxonomy] = await Promise.all([
-    repository.getPublicCatalog(locale).catch(() => ({
+    getCachedPublicCatalog(locale).catch(() => ({
       schemaVersion: 3 as const,
       locale,
       generatedAt: new Date(0).toISOString(),
       documents: [],
     })),
-    repository.get().then((value) => value.taxonomy),
+    getCachedTaxonomy().then((value) => value.taxonomy),
   ]);
   return (
     <LaboratoriesContent

@@ -359,9 +359,7 @@ export function DocumentAdminWorkspace() {
           </div>
         </div>
         <div className="p-6">
-          <Activity
-            mode={managementTab === "documents" ? "visible" : "hidden"}
-          >
+          <Activity mode={managementTab === "documents" ? "visible" : "hidden"}>
             <div
               id="management-panel-documents"
               role="tabpanel"
@@ -544,6 +542,15 @@ function DocxImportPanel({
           pathname: string;
           relativePath: string;
           placeholder: string | null;
+          mode: "upload" | "reuse";
+          reuse?: {
+            pathname: string;
+            url: string;
+            relativePath: string;
+            contentType: string;
+            size: number;
+            sha256: string;
+          };
         }>;
       }>("/api/admin/import-intents", {
         method: "POST",
@@ -562,17 +569,28 @@ function DocxImportPanel({
           })),
         }),
       });
-      const uploaded = await Promise.all(
-        converted.assets.map(async (asset) => {
+      const uploaded = await mapWithConcurrency(
+        converted.assets,
+        6,
+        async (asset) => {
           const target = intent.assets.find(
             (item) => item.index === asset.index,
           );
           if (!target)
             throw new Error("No se reservó una ruta para una imagen.");
+          if (target.mode === "reuse" && target.reuse) {
+            return {
+              index: asset.index,
+              placeholder: target.placeholder,
+              originalName: `image-${asset.index + 1}.${asset.extension}`,
+              ...target.reuse,
+            };
+          }
           const result = await upload(target.pathname, asset.blob, {
             access: "public",
             handleUploadUrl: "/api/admin/blob/upload",
             clientPayload: intent.intentToken,
+            multipart: false,
           });
           return {
             index: asset.index,
@@ -585,7 +603,7 @@ function DocxImportPanel({
             size: asset.blob.size,
             sha256: asset.sha256,
           };
-        }),
+        },
       );
       const englishSource =
         includeEnglish && englishDraft
@@ -1157,34 +1175,56 @@ async function uploadDirectAssets(
   }>,
   intentToken: string,
 ) {
-  return Promise.all(
-    assets.map(async (asset, index) => {
-      const target = targets.find((item) => item.index === index);
-      if (!target) throw new Error("No se reservó la ruta de un recurso.");
-      const body =
-        asset.file.type === asset.contentType
-          ? asset.file
-          : new Blob([await asset.file.arrayBuffer()], {
-              type: asset.contentType,
-            });
-      const result = await upload(target.pathname, body, {
-        access: "public",
-        handleUploadUrl: "/api/admin/blob/upload",
-        clientPayload: intentToken,
-      });
-      return {
-        index,
-        placeholder: null,
-        originalName: asset.originalName,
-        relativePath: target.relativePath,
-        pathname: result.pathname,
-        url: result.url,
-        contentType: asset.contentType,
-        size: asset.size,
-        sha256: asset.sha256,
-      };
-    }),
+  return mapWithConcurrency(assets, 6, async (asset, index) => {
+    const target = targets.find((item) => item.index === index);
+    if (!target) throw new Error("No se reservó la ruta de un recurso.");
+    const body =
+      asset.file.type === asset.contentType
+        ? asset.file
+        : new Blob([await asset.file.arrayBuffer()], {
+            type: asset.contentType,
+          });
+    const result = await upload(target.pathname, body, {
+      access: "public",
+      handleUploadUrl: "/api/admin/blob/upload",
+      clientPayload: intentToken,
+      multipart: false,
+    });
+    return {
+      index,
+      placeholder: null,
+      originalName: asset.originalName,
+      relativePath: target.relativePath,
+      pathname: result.pathname,
+      url: result.url,
+      contentType: asset.contentType,
+      size: asset.size,
+      sha256: asset.sha256,
+    };
+  });
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await worker(values[index]!, index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () =>
+      runWorker(),
+    ),
   );
+  return results;
 }
 
 type TranslationAsset = {
@@ -1330,10 +1370,7 @@ function TranslationDraftPanel({
         kind === "html"
           ? processHtmlContent(source).localReferences
           : markdownLocalAssetReferences(source);
-      const missing = missingSharedAssetReferences(
-        references,
-        sharedAssets,
-      );
+      const missing = missingSharedAssetReferences(references, sharedAssets);
       return missing.length
         ? `No se encontraron estos recursos en la versión en español: ${missing.join(", ")}`
         : null;
@@ -2181,13 +2218,10 @@ function DocumentList({
     action: string,
     locale?: ContentLocale,
   ) => void;
-  onUnpublish: (
-    document: VersionedManifest,
-    locales: ContentLocale[],
-  ) => void;
+  onUnpublish: (document: VersionedManifest, locales: ContentLocale[]) => void;
 }) {
-  const [status, setStatus] = useState<DocumentStatusFilter>(
-    () => readDocumentStatusFilter(browserAdminPreferenceStorage()),
+  const [status, setStatus] = useState<DocumentStatusFilter>(() =>
+    readDocumentStatusFilter(browserAdminPreferenceStorage()),
   );
   const [page, setPage] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -2254,14 +2288,11 @@ function DocumentList({
                 {Object.entries(document.manifest.localizations)
                   .flatMap(([locale, localization]) =>
                     localization
-                      ? [
-                          `${locale.toUpperCase()}: ${localization.status}`,
-                        ]
+                      ? [`${locale.toUpperCase()}: ${localization.status}`]
                       : [],
                   )
                   .join(" · ")}{" "}
-                ·{" "}
-                {new Date(document.manifest.updatedAt).toLocaleString()}
+                · {new Date(document.manifest.updatedAt).toLocaleString()}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2292,18 +2323,14 @@ function DocumentList({
               {document.manifest.status === "published" ? (
                 <button
                   aria-disabled={
-                    cleanupRemainingMinutes(
-                      document.manifest.updatedAt,
-                      now,
-                    ) > 0
+                    cleanupRemainingMinutes(document.manifest.updatedAt, now) >
+                    0
                   }
                   title={cleanupButtonTitle(document.manifest.updatedAt, now)}
                   onClick={() => onAction(document, "cleanup")}
                   className={`button-secondary ${
-                    cleanupRemainingMinutes(
-                      document.manifest.updatedAt,
-                      now,
-                    ) > 0
+                    cleanupRemainingMinutes(document.manifest.updatedAt, now) >
+                    0
                       ? "cursor-not-allowed opacity-50"
                       : ""
                   }`}
@@ -2368,23 +2395,17 @@ function UnpublishLocalesMenu({
   onConfirm,
 }: {
   document: VersionedManifest;
-  onConfirm: (
-    document: VersionedManifest,
-    locales: ContentLocale[],
-  ) => void;
+  onConfirm: (document: VersionedManifest, locales: ContentLocale[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ContentLocale[]>([]);
   const publishedLocales = Object.entries(
     document.manifest.localizations,
   ).flatMap(([locale, localization]) =>
-    localization?.status === "published"
-      ? [locale as ContentLocale]
-      : [],
+    localization?.status === "published" ? [locale as ContentLocale] : [],
   );
   const allSelected =
-    publishedLocales.length > 0 &&
-    selected.length === publishedLocales.length;
+    publishedLocales.length > 0 && selected.length === publishedLocales.length;
 
   function toggleLocale(locale: ContentLocale, checked: boolean) {
     setSelected((current) => {
@@ -2426,9 +2447,7 @@ function UnpublishLocalesMenu({
               type="checkbox"
               checked={allSelected}
               onChange={(event) =>
-                setSelected(
-                  event.target.checked ? publishedLocales : [],
-                )
+                setSelected(event.target.checked ? publishedLocales : [])
               }
               className="size-4 accent-primary"
             />
@@ -2452,9 +2471,7 @@ function UnpublishLocalesMenu({
                   }
                   className="size-4 accent-primary"
                 />
-                <span className="font-medium">
-                  {locale.toUpperCase()}
-                </span>
+                <span className="font-medium">{locale.toUpperCase()}</span>
                 <span className="text-muted-foreground">
                   {contentLocaleName(locale)}
                 </span>

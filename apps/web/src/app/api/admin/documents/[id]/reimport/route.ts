@@ -1,4 +1,3 @@
-import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -24,6 +23,7 @@ import { apiError } from "@/features/content-management/server/http";
 import { verifyImportIntent } from "@/features/content-management/server/import-intent";
 import { assertTaxonomySelection } from "@/features/content-management/server/taxonomy-selection";
 import { validateUploadedAssets } from "@/features/content-management/server/uploaded-asset-validation";
+import { invalidateManifestChange } from "@/features/content-management/server/content-cache-invalidation";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -61,6 +61,12 @@ export async function POST(request: Request, context: Context) {
     const assets = await validateUploadedAssets(
       input.assets,
       intent.allowedPathnames,
+      (intent.reusableAssets ?? []).map((asset, index) => ({
+        index,
+        placeholder: null,
+        originalName: asset.relativePath.split("/").at(-1) ?? "asset",
+        ...asset,
+      })),
     );
     let source = input.source;
     for (const asset of input.assets) {
@@ -96,8 +102,7 @@ export async function POST(request: Request, context: Context) {
       subcategoryId: input.subcategoryId,
       expectedEtag: input.expectedEtag,
     });
-    revalidatePath("/es/laboratorios");
-    revalidatePath("/en/laboratorios");
+    invalidateManifestChange(current.manifest, document.manifest);
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);

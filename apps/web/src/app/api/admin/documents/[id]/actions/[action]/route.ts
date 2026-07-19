@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { ContentManagementError } from "@/features/content-management/domain/errors";
@@ -13,6 +12,8 @@ import {
 } from "@/features/content-management/server/admin-session";
 import { getContentRepository } from "@/features/content-management/server/container";
 import { apiError } from "@/features/content-management/server/http";
+import { getCachedAdminDocument } from "@/features/content-management/server/cached-content";
+import { invalidateManifestChange } from "@/features/content-management/server/content-cache-invalidation";
 
 type Context = { params: Promise<{ id: string; action: string }> };
 
@@ -22,9 +23,13 @@ export async function POST(request: Request, context: Context) {
     await requireAdminSession();
     const { id, action } = await context.params;
     const repository = getContentRepository();
+    const previous = await getCachedAdminDocument(id);
+    if (!previous) {
+      throw new ContentManagementError("NOT_FOUND", "Documento no encontrado.");
+    }
     if (action === "purge") {
       await repository.purge(id);
-      revalidatePath("/laboratorios");
+      invalidateManifestChange(previous.manifest, null);
       return NextResponse.json({ ok: true });
     }
     const { expectedEtag, locale, locales } = z
@@ -41,9 +46,7 @@ export async function POST(request: Request, context: Context) {
     }
     if (action === "publish") {
       const document = await repository.publishAvailable(id, expectedEtag);
-      for (const contentLocale of contentLocales) {
-        revalidatePath(`/${contentLocale}/laboratorios`);
-      }
+      invalidateManifestChange(previous.manifest, document.manifest);
       return NextResponse.json(document);
     }
     if (action === "unpublish" && locales) {
@@ -52,9 +55,7 @@ export async function POST(request: Request, context: Context) {
         locales,
         expectedEtag,
       );
-      for (const contentLocale of contentLocales) {
-        revalidatePath(`/${contentLocale}/laboratorios`);
-      }
+      invalidateManifestChange(previous.manifest, document.manifest);
       return NextResponse.json(document);
     }
     const target: Record<string, DocumentStatus> = {
@@ -71,9 +72,7 @@ export async function POST(request: Request, context: Context) {
       expectedEtag,
       locale,
     );
-    for (const contentLocale of contentLocales) {
-      revalidatePath(`/${contentLocale}/laboratorios`);
-    }
+    invalidateManifestChange(previous.manifest, document.manifest);
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);

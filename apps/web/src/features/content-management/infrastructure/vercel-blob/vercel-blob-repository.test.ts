@@ -6,6 +6,7 @@ const blobMocks = vi.hoisted(() => ({
   BlobNotFoundError: class BlobNotFoundError extends Error {},
   BlobPreconditionFailedError: class BlobPreconditionFailedError extends Error {},
   del: vi.fn(),
+  get: vi.fn(),
   head: vi.fn(),
   list: vi.fn(),
   put: vi.fn(),
@@ -19,12 +20,14 @@ vi.mock("@vercel/blob", () => ({
 import { VercelBlobContentRepository } from "./vercel-blob-repository";
 
 const manifestPath = "aws-labs/v1/documents/laboratorio-abc123/manifest.json";
+const locatorPath = "aws-labs/v1/system/document-ids/document-1.json";
 const markdownPath =
   "aws-labs/v1/documents/laboratorio-abc123/es/document-current.md";
 
 describe("VercelBlobContentRepository", () => {
   beforeEach(() => {
     process.env.BLOB_STORE_ID = "store_test";
+    blobMocks.get.mockResolvedValue(null);
     blobMocks.list.mockResolvedValue({
       blobs: [
         {
@@ -81,8 +84,110 @@ describe("VercelBlobContentRepository", () => {
     expect(blobMocks.head).toHaveBeenCalledWith(manifestPath);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("manifest.json?v=current-manifest-etag"),
-      { cache: "no-store" },
+      { cache: "force-cache" },
     );
+  });
+
+  it("resuelve por localizador sin listar documentos ni consultar el contenido con head", async () => {
+    blobMocks.get.mockImplementation(async (pathname: string) =>
+      pathname === locatorPath
+        ? immutableJson({
+            schemaVersion: 1,
+            documentId: "document-1",
+            canonicalKey: "laboratorio",
+            folder: "aws-labs/v1/documents/laboratorio-abc123",
+          })
+        : null,
+    );
+    const repository = new VercelBlobContentRepository();
+
+    const document = await repository.findById("document-1");
+
+    expect(document?.manifest.id).toBe("document-1");
+    expect(blobMocks.list).not.toHaveBeenCalled();
+    expect(blobMocks.head).toHaveBeenCalledTimes(1);
+    expect(blobMocks.head).toHaveBeenCalledWith(manifestPath);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining(markdownPath), {
+      cache: "force-cache",
+    });
+  });
+
+  it("cumple el presupuesto de publicación con localizador: un list y dos escrituras", async () => {
+    blobMocks.get.mockImplementation(async (pathname: string) =>
+      pathname === locatorPath
+        ? immutableJson({
+            schemaVersion: 1,
+            documentId: "document-1",
+            canonicalKey: "laboratorio",
+            folder: "aws-labs/v1/documents/laboratorio-abc123",
+          })
+        : null,
+    );
+    const repository = new VercelBlobContentRepository();
+
+    await repository.transition(
+      "document-1",
+      "published",
+      "current-manifest-etag",
+    );
+
+    expect(blobMocks.list).toHaveBeenCalledTimes(1);
+    expect(blobMocks.head).toHaveBeenCalledTimes(1);
+    expect(blobMocks.put).toHaveBeenCalledTimes(2);
+    expect(blobMocks.put.mock.calls.map(([pathname]) => pathname)).toEqual([
+      manifestPath,
+      expect.stringMatching(
+        /^aws-labs\/v1\/system\/catalog\/es\/public-catalog-/,
+      ),
+    ]);
+  });
+
+  it("reconstruye un catálogo con un list, sin head por manifiesto", async () => {
+    const repository = new VercelBlobContentRepository();
+
+    await repository.rebuildPublicCatalog("es");
+
+    expect(blobMocks.list).toHaveBeenCalledTimes(1);
+    expect(blobMocks.head).not.toHaveBeenCalled();
+    expect(blobMocks.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("guarda taxonomía con una sola escritura optimista", async () => {
+    const repository = new VercelBlobContentRepository();
+    const taxonomy = {
+      schemaVersion: 2 as const,
+      categories: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    await repository.save(taxonomy, "taxonomy-etag");
+
+    expect(blobMocks.list).not.toHaveBeenCalled();
+    expect(blobMocks.head).not.toHaveBeenCalled();
+    expect(blobMocks.get).not.toHaveBeenCalled();
+    expect(blobMocks.put).toHaveBeenCalledTimes(1);
+    expect(blobMocks.put).toHaveBeenCalledWith(
+      "aws-labs/v1/system/taxonomy/manifest.json",
+      JSON.stringify(taxonomy),
+      expect.objectContaining({ ifMatch: "taxonomy-etag" }),
+    );
+  });
+
+  it("informa localizadores faltantes en dry-run sin escribirlos", async () => {
+    blobMocks.head.mockRejectedValue(new blobMocks.BlobNotFoundError());
+    const repository = new VercelBlobContentRepository();
+
+    const result = await repository.migrate("dry-run");
+
+    expect(result).toMatchObject({
+      inspected: 1,
+      alreadyMigrated: 1,
+      locatorsMissing: 2,
+      locatorsCreated: 0,
+    });
+    expect(blobMocks.list).toHaveBeenCalledTimes(1);
+    expect(blobMocks.head).not.toHaveBeenCalledWith(manifestPath);
+    expect(blobMocks.put).not.toHaveBeenCalled();
   });
 
   it("cambia el estado usando sólo el manifiesto, sin descargar Markdown", async () => {
@@ -327,10 +432,7 @@ describe("VercelBlobContentRepository", () => {
 
   it("despublica sólo los idiomas seleccionados", async () => {
     const manifest = publishedMultilingualManifest();
-    vi.stubGlobal(
-      "fetch",
-      manifestFetch(manifest),
-    );
+    vi.stubGlobal("fetch", manifestFetch(manifest));
     const repository = new VercelBlobContentRepository();
 
     const document = await repository.unpublishSelected(
@@ -346,10 +448,7 @@ describe("VercelBlobContentRepository", () => {
 
   it("despublica todos los idiomas seleccionados en una sola operación", async () => {
     const manifest = publishedMultilingualManifest();
-    vi.stubGlobal(
-      "fetch",
-      manifestFetch(manifest),
-    );
+    vi.stubGlobal("fetch", manifestFetch(manifest));
     const repository = new VercelBlobContentRepository();
 
     const document = await repository.unpublishSelected(
@@ -370,10 +469,7 @@ describe("VercelBlobContentRepository", () => {
 
   it("impide despublicar español sin incluir los demás idiomas publicados", async () => {
     const manifest = publishedMultilingualManifest();
-    vi.stubGlobal(
-      "fetch",
-      manifestFetch(manifest),
-    );
+    vi.stubGlobal("fetch", manifestFetch(manifest));
     const repository = new VercelBlobContentRepository();
 
     await expect(
@@ -399,8 +495,7 @@ describe("VercelBlobContentRepository", () => {
         {
           originalName: "nueva.png",
           relativePath: "images/nueva.png",
-          pathname:
-            "aws-labs/v1/documents/laboratorio-abc123/images/nueva.png",
+          pathname: "aws-labs/v1/documents/laboratorio-abc123/images/nueva.png",
           url: "https://store.public.blob.vercel-storage.com/aws-labs/v1/documents/laboratorio-abc123/images/nueva.png",
           contentType: "image/png",
           size: 68,
@@ -670,4 +765,14 @@ function manifestFetch(manifest: DocumentManifest) {
         { status: 200 },
       ),
   );
+}
+
+function immutableJson(value: unknown) {
+  return {
+    statusCode: 200,
+    stream: new Response(JSON.stringify(value)).body!,
+    blob: {
+      etag: "immutable-etag",
+    },
+  };
 }

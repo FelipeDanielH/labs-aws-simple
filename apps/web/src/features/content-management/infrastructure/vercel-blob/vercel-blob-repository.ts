@@ -4,6 +4,7 @@ import {
   BlobNotFoundError,
   BlobPreconditionFailedError,
   del,
+  get,
   head,
   list,
   put,
@@ -14,10 +15,7 @@ import { contentPaths, createShortId } from "../../application/document-paths";
 import type { DocumentRepository } from "../../application/ports/document-repository";
 import type { TaxonomyRepository } from "../../application/ports/taxonomy-repository";
 import { ContentManagementError } from "../../domain/errors";
-import {
-  contentLocales,
-  withManifestProjection,
-} from "../../domain/models";
+import { contentLocales, withManifestProjection } from "../../domain/models";
 import type {
   CatalogEntry,
   ContentLocale,
@@ -49,12 +47,22 @@ interface LocatedBlob {
   etag: string;
 }
 
+interface DocumentLocator {
+  schemaVersion?: 1;
+  documentId: string;
+  canonicalKey: string;
+  folder: string;
+}
+
 export type MigrationMode = "dry-run" | "apply" | "verify";
 export type MigrationResult = {
   mode: MigrationMode;
   inspected: number;
   migrated: number;
   alreadyMigrated: number;
+  locatorsMissing: number;
+  locatorsCreated: number;
+  locatorsVerified: number;
   taxonomy: "unchanged" | "pending" | "migrated" | "verified";
   errors: string[];
 };
@@ -63,7 +71,7 @@ export class VercelBlobContentRepository
   implements DocumentRepository, TaxonomyRepository
 {
   async list(status?: DocumentStatus): Promise<VersionedManifest[]> {
-    const manifests = await this.listManifests();
+    const manifests = await this.listManifests(true);
     return manifests
       .filter(
         ({ manifest }) =>
@@ -80,6 +88,27 @@ export class VercelBlobContentRepository
   async findById(id: string): Promise<VersionedDocument | null> {
     const match = await this.findManifestById(id);
     return match ? this.withContent(match.manifest, match.etag) : null;
+  }
+
+  async findByCanonicalKey(
+    canonicalKey: string,
+  ): Promise<VersionedManifest | null> {
+    const marker = await this.readImmutableJson<DocumentLocator>(
+      contentPaths.duplicateKey(canonicalKey),
+    );
+    if (!marker) return null;
+    const stored = await this.readJson<unknown>(
+      contentPaths.manifest(marker.value.folder),
+    );
+    if (!stored) return null;
+    const manifest = normalizeDocumentManifest(stored.value);
+    if (
+      manifest.id !== marker.value.documentId ||
+      manifest.canonicalKey !== canonicalKey
+    ) {
+      this.storageFailure("resolver el marcador de documento");
+    }
+    return { manifest, etag: stored.etag };
   }
 
   async findPublishedBySlug(
@@ -103,7 +132,7 @@ export class VercelBlobContentRepository
     }
     if (!entry) return null;
 
-    const response = await fetch(entry.content.url, { cache: "no-store" });
+    const response = await fetch(entry.content.url, { cache: "force-cache" });
     if (response.status === 404) return null;
     if (!response.ok) this.storageFailure("leer el contenido publicado");
     return {
@@ -119,7 +148,7 @@ export class VercelBlobContentRepository
     this.assertConfigured();
     const spanish = input.variants.find((variant) => variant.locale === "es");
     if (!spanish) this.invalid("La versión en español es obligatoria.");
-    const manifests = await this.listManifests();
+    const manifests = await this.listManifests(true);
     if (
       manifests.some(
         ({ manifest }) => manifest.canonicalKey === input.canonicalKey,
@@ -132,14 +161,23 @@ export class VercelBlobContentRepository
     }
 
     const markerPath = contentPaths.duplicateKey(input.canonicalKey);
-    if (await this.locateBlob(markerPath)) {
+    const locatorPath = contentPaths.documentId(input.id);
+    if (await this.immutableExists(markerPath)) {
       this.invalid("Ya existe un laboratorio asociado a ese archivo.");
     }
-    await this.writeJson(markerPath, {
+    const locator: DocumentLocator = {
+      schemaVersion: 1,
       documentId: input.id,
       canonicalKey: input.canonicalKey,
       folder: input.folder,
-    });
+    };
+    await this.writeJson(markerPath, locator, undefined, false, 31_536_000);
+    try {
+      await this.writeJson(locatorPath, locator, undefined, false, 31_536_000);
+    } catch (error) {
+      await del(markerPath).catch(() => undefined);
+      throw error;
+    }
 
     const now = new Date().toISOString();
     const createdUrls: string[] = [];
@@ -198,6 +236,7 @@ export class VercelBlobContentRepository
     } catch (error) {
       if (createdUrls.length) await del(createdUrls).catch(() => undefined);
       await del(markerPath).catch(() => undefined);
+      await del(locatorPath).catch(() => undefined);
       this.rethrowStorageError(error);
     }
   }
@@ -209,7 +248,7 @@ export class VercelBlobContentRepository
     const current = await this.requireManifest(id);
     if (current.etag !== input.expectedEtag) this.throwConflict();
     const existing = current.manifest.localizations[input.locale];
-    const manifests = await this.listManifests();
+    const manifests = await this.listManifests(true);
     const slug = existing?.slug ?? input.slug;
     if (!slug) this.invalid("Falta el slug del nuevo idioma.");
     this.assertUniqueSlug(manifests, input.locale, slug, id);
@@ -254,7 +293,7 @@ export class VercelBlobContentRepository
         input.expectedEtag,
       );
       if (localization.status === "published")
-        await this.syncCatalogs(manifest);
+        await this.syncCatalogs(manifest, current.manifest, manifests);
       const document = await this.withContent(manifest, stored.etag);
       document.sources[input.locale] = input.source;
       if (input.locale === "es") document.source = input.source;
@@ -272,7 +311,8 @@ export class VercelBlobContentRepository
     const current = await this.requireManifest(id);
     if (current.etag !== input.expectedEtag) this.throwConflict();
     const existing = current.manifest.localizations[input.locale];
-    if (!existing) this.invalid("No existe el idioma que se quiere reemplazar.");
+    if (!existing)
+      this.invalid("No existe el idioma que se quiere reemplazar.");
 
     const kind = input.contentKind ?? existing.content.kind;
     const content = await this.writeContent(
@@ -310,7 +350,8 @@ export class VercelBlobContentRepository
         manifest,
         input.expectedEtag,
       );
-      if (localization.status === "published") await this.syncCatalogs(manifest);
+      if (localization.status === "published")
+        await this.syncCatalogs(manifest, current.manifest);
       const document = await this.withContent(manifest, stored.etag);
       document.sources[input.locale] = input.source;
       if (input.locale === "es") document.source = input.source;
@@ -346,7 +387,7 @@ export class VercelBlobContentRepository
       manifest,
       expectedEtag,
     );
-    await this.syncCatalogs(manifest);
+    await this.syncCatalogs(manifest, current.manifest);
     return { manifest, etag: stored.etag };
   }
 
@@ -417,7 +458,7 @@ export class VercelBlobContentRepository
         manifest,
         expectedEtag,
       );
-      await this.syncCatalogs(manifest);
+      await this.syncCatalogs(manifest, current.manifest);
       return { manifest, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
@@ -439,9 +480,7 @@ export class VercelBlobContentRepository
 
     const localizations = { ...current.manifest.localizations };
     const drafts = Object.entries(localizations).filter(
-      (
-        entry,
-      ): entry is [ContentLocale, DocumentLocalization] =>
+      (entry): entry is [ContentLocale, DocumentLocalization] =>
         Boolean(entry[1]?.status === "draft"),
     );
     if (!drafts.length) return current;
@@ -482,7 +521,7 @@ export class VercelBlobContentRepository
         manifest,
         expectedEtag,
       );
-      await this.syncCatalogs(manifest);
+      await this.syncCatalogs(manifest, current.manifest);
       return { manifest, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
@@ -502,12 +541,8 @@ export class VercelBlobContentRepository
       this.invalid("Selecciona al menos un idioma para despublicar.");
     }
     for (const locale of selectedLocales) {
-      if (
-        current.manifest.localizations[locale]?.status !== "published"
-      ) {
-        this.invalid(
-          `La versión ${locale.toUpperCase()} no está publicada.`,
-        );
+      if (current.manifest.localizations[locale]?.status !== "published") {
+        this.invalid(`La versión ${locale.toUpperCase()} no está publicada.`);
       }
     }
 
@@ -549,7 +584,7 @@ export class VercelBlobContentRepository
         manifest,
         expectedEtag,
       );
-      await this.syncCatalogs(manifest);
+      await this.syncCatalogs(manifest, current.manifest);
       return { manifest, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
@@ -566,7 +601,10 @@ export class VercelBlobContentRepository
     await del(contentPaths.duplicateKey(current.manifest.canonicalKey)).catch(
       () => undefined,
     );
-    await this.rebuildAllCatalogs();
+    await del(contentPaths.documentId(current.manifest.id)).catch(
+      () => undefined,
+    );
+    await this.syncCatalogs(null, current.manifest);
   }
 
   async cleanupVersions(
@@ -642,24 +680,9 @@ export class VercelBlobContentRepository
   async rebuildPublicCatalog(
     locale: ContentLocale = "es",
   ): Promise<PublicCatalog> {
-    const manifests = await this.listManifests();
-    const documents = manifests
-      .map(({ manifest }) => toCatalogEntry(manifest, locale))
-      .filter((entry): entry is CatalogEntry => Boolean(entry))
-      .sort(compareCatalogEntries);
-    const catalog: PublicCatalog = {
-      schemaVersion: 3,
-      locale,
-      generatedAt: new Date().toISOString(),
-      documents,
-    };
-    await this.writeJson(
-      contentPaths.catalogVersion(locale, `${Date.now()}-${createShortId()}`),
-      catalog,
-      undefined,
-      false,
-      31_536_000,
-    );
+    const manifests = await this.listManifests(true);
+    const catalog = buildPublicCatalog(manifests, locale);
+    await this.writePublicCatalog(catalog);
     return catalog;
   }
 
@@ -679,17 +702,12 @@ export class VercelBlobContentRepository
     taxonomy: Taxonomy,
     expectedEtag: string | null,
   ): Promise<VersionedTaxonomy> {
-    const current = await this.readJson<unknown>(contentPaths.taxonomyV2);
-    if ((current?.etag ?? null) !== expectedEtag) this.throwConflict();
     try {
-      await this.writeTaxonomyLocaleVersions(taxonomy);
       const stored = await this.writeJson(
         contentPaths.taxonomyV2,
         taxonomy,
         expectedEtag ?? undefined,
-        expectedEtag === null,
       );
-      await this.rebuildAllCatalogs();
       return { taxonomy, etag: stored.etag };
     } catch (error) {
       this.rethrowStorageError(error);
@@ -706,6 +724,9 @@ export class VercelBlobContentRepository
       inspected: manifests.length,
       migrated: 0,
       alreadyMigrated: 0,
+      locatorsMissing: 0,
+      locatorsCreated: 0,
+      locatorsVerified: 0,
       taxonomy: "unchanged",
       errors: [],
     };
@@ -713,28 +734,40 @@ export class VercelBlobContentRepository
       try {
         const stored = await this.readJson<Record<string, unknown>>(
           blob.pathname,
+          {
+            pathname: blob.pathname,
+            url: blob.url,
+            etag: blob.etag,
+          },
         );
         if (!stored) continue;
         if (stored.value.schemaVersion === 3) {
+          const manifest = normalizeDocumentManifest(stored.value);
           if (mode === "verify") {
-            const manifest = normalizeDocumentManifest(stored.value);
             for (const localization of Object.values(manifest.localizations)) {
               if (
                 localization &&
-                !(await this.locateBlob(localization.content.pathname))
+                !(await this.immutableExists(localization.content.pathname))
               ) {
                 throw new Error(
                   `Falta el contenido ${localization.content.pathname}.`,
                 );
               }
             }
-            if (
-              !(await this.locateBlob(
-                contentPaths.duplicateKey(manifest.canonicalKey),
-              ))
-            ) {
-              throw new Error("Falta el marcador de duplicado.");
+            const missing = await this.missingDocumentMarkers(manifest);
+            result.locatorsVerified += 2 - missing.length;
+            result.locatorsMissing += missing.length;
+            if (missing.length) {
+              throw new Error(`Faltan localizadores: ${missing.join(", ")}.`);
             }
+          } else if (mode === "apply") {
+            const created = await this.ensureDocumentMarkers(manifest);
+            result.locatorsCreated += created;
+            result.locatorsMissing += created;
+          } else {
+            result.locatorsMissing += (
+              await this.missingDocumentMarkers(manifest)
+            ).length;
           }
           result.alreadyMigrated += 1;
           continue;
@@ -762,20 +795,13 @@ export class VercelBlobContentRepository
             },
           });
           await this.writeJson(blob.pathname, migrated, stored.etag);
-          if (
-            !(await this.locateBlob(
-              contentPaths.duplicateKey(manifest.canonicalKey),
-            ))
-          ) {
-            await this.writeJson(
-              contentPaths.duplicateKey(manifest.canonicalKey),
-              {
-                documentId: manifest.id,
-                canonicalKey: manifest.canonicalKey,
-                folder: manifest.folder,
-              },
-            );
-          }
+          const created = await this.ensureDocumentMarkers(migrated);
+          result.locatorsCreated += created;
+          result.locatorsMissing += created;
+        } else {
+          result.locatorsMissing += (
+            await this.missingDocumentMarkers(manifest)
+          ).length;
         }
         result.migrated += 1;
       } catch (error) {
@@ -791,31 +817,11 @@ export class VercelBlobContentRepository
       ? null
       : await this.readJson<unknown>(contentPaths.taxonomy);
     if (currentTaxonomy) {
-      if (mode === "verify") {
-        const taxonomy = normalizeTaxonomy(currentTaxonomy.value);
-        for (const locale of ["es", "en"] as const) {
-          if (
-            locale === "en" &&
-            !taxonomy.categories.some((category) => category.localizations.en)
-          ) {
-            continue;
-          }
-          const versions = await this.listAll(
-            `${contentPaths.root}/system/taxonomy/${locale}/taxonomy-`,
-          );
-          if (!versions.length) {
-            result.errors.push(
-              `Taxonomía: falta el snapshot localizado ${locale.toUpperCase()}.`,
-            );
-          }
-        }
-        result.taxonomy = "verified";
-      }
+      if (mode === "verify") result.taxonomy = "verified";
     } else if (legacyTaxonomy) {
       result.taxonomy = "pending";
       if (mode === "apply") {
         const taxonomy = normalizeTaxonomy(legacyTaxonomy.value);
-        await this.writeTaxonomyLocaleVersions(taxonomy);
         await this.writeJson(contentPaths.taxonomyV2, taxonomy);
         result.taxonomy = "migrated";
       } else if (mode === "verify") {
@@ -826,97 +832,77 @@ export class VercelBlobContentRepository
     return result;
   }
 
-  private async writeTaxonomyLocaleVersions(taxonomy: Taxonomy) {
-    const generationId = `${Date.now()}-${createShortId()}`;
+  private async rebuildAllCatalogs() {
+    const manifests = await this.listManifests(true);
     await Promise.all(
-      (["es", "en"] as const).map(async (locale) => {
-        const categories = taxonomy.categories
-          .map((category) => {
-            const label = category.localizations[locale];
-            if (!label) return null;
-            return {
-              id: category.id,
-              ...label,
-              subcategories: category.subcategories
-                .map((subcategory) => {
-                  const subcategoryLabel = subcategory.localizations[locale];
-                  return subcategoryLabel
-                    ? { id: subcategory.id, ...subcategoryLabel }
-                    : null;
-                })
-                .filter(
-                  (
-                    subcategory,
-                  ): subcategory is {
-                    id: string;
-                    name: string;
-                    slug: string;
-                  } => Boolean(subcategory),
-                ),
-            };
-          })
-          .filter(
-            (
-              category,
-            ): category is {
-              id: string;
-              name: string;
-              slug: string;
-              subcategories: {
-                id: string;
-                name: string;
-                slug: string;
-              }[];
-            } => Boolean(category),
-          );
-        if (locale === "en" && !categories.length) return;
-        await this.writeJson(
-          contentPaths.taxonomyLocaleVersion(locale, generationId),
-          {
-            schemaVersion: 2,
-            locale,
-            updatedAt: taxonomy.updatedAt,
-            categories,
-          },
-          undefined,
-          false,
-          31_536_000,
-        );
-      }),
+      contentLocales.map((locale) =>
+        this.writePublicCatalog(buildPublicCatalog(manifests, locale)),
+      ),
     );
   }
 
-  private async rebuildAllCatalogs() {
-    await Promise.all([
-      this.rebuildPublicCatalog("es"),
-      this.rebuildPublicCatalog("en"),
-    ]);
+  private async missingDocumentMarkers(manifest: DocumentManifest) {
+    const paths = [
+      contentPaths.duplicateKey(manifest.canonicalKey),
+      contentPaths.documentId(manifest.id),
+    ];
+    const exists = await Promise.all(
+      paths.map((pathname) => this.immutableExists(pathname)),
+    );
+    return paths.filter((_, index) => !exists[index]);
   }
 
-  private async syncCatalogs(manifest: DocumentManifest) {
-    const current = await this.listManifests();
-    const manifests = [
-      { manifest, etag: "" },
-      ...current.filter((item) => item.manifest.id !== manifest.id),
-    ];
-    for (const locale of ["es", "en"] as const) {
-      const catalog: PublicCatalog = {
-        schemaVersion: 3,
-        locale,
-        generatedAt: new Date().toISOString(),
-        documents: manifests
-          .map((item) => toCatalogEntry(item.manifest, locale))
-          .filter((entry): entry is CatalogEntry => Boolean(entry))
-          .sort(compareCatalogEntries),
-      };
-      await this.writeJson(
-        contentPaths.catalogVersion(locale, `${Date.now()}-${createShortId()}`),
-        catalog,
-        undefined,
-        false,
-        31_536_000,
-      );
+  private async ensureDocumentMarkers(manifest: DocumentManifest) {
+    const locator: DocumentLocator = {
+      schemaVersion: 1,
+      documentId: manifest.id,
+      canonicalKey: manifest.canonicalKey,
+      folder: manifest.folder,
+    };
+    const missing = await this.missingDocumentMarkers(manifest);
+    for (const pathname of missing) {
+      await this.writeJson(pathname, locator, undefined, false, 31_536_000);
     }
+    return missing.length;
+  }
+
+  private async syncCatalogs(
+    manifest: DocumentManifest | null,
+    previous: DocumentManifest,
+    loadedManifests?: VersionedManifest[],
+  ) {
+    const affectedLocales = contentLocales.filter(
+      (locale) =>
+        JSON.stringify(toCatalogEntry(previous, locale)) !==
+        JSON.stringify(manifest ? toCatalogEntry(manifest, locale) : null),
+    );
+    if (!affectedLocales.length) return;
+
+    const current = loadedManifests ?? (await this.listManifests(true));
+    const manifests = manifest
+      ? [
+          { manifest, etag: "" },
+          ...current.filter((item) => item.manifest.id !== manifest.id),
+        ]
+      : current.filter((item) => item.manifest.id !== previous.id);
+    await Promise.all(
+      affectedLocales.map((locale) =>
+        this.writePublicCatalog(buildPublicCatalog(manifests, locale)),
+      ),
+    );
+  }
+
+  private async writePublicCatalog(catalog: PublicCatalog) {
+    return this.writeJson(
+      contentPaths.catalogVersion(
+        catalog.locale,
+        `${Date.now()}-${createShortId()}`,
+      ),
+      catalog,
+      undefined,
+      false,
+      31_536_000,
+    );
   }
 
   private async writeContent(
@@ -937,7 +923,7 @@ export class VercelBlobContentRepository
         kind === "html"
           ? "text/html; charset=utf-8"
           : "text/markdown; charset=utf-8",
-      cacheControlMaxAge: 60,
+      cacheControlMaxAge: 31_536_000,
     });
     return {
       kind,
@@ -950,6 +936,20 @@ export class VercelBlobContentRepository
   private async findManifestById(
     id: string,
   ): Promise<VersionedManifest | null> {
+    const locator = await this.readImmutableJson<DocumentLocator>(
+      contentPaths.documentId(id),
+    );
+    if (locator) {
+      const stored = await this.readJson<unknown>(
+        contentPaths.manifest(locator.value.folder),
+      );
+      if (!stored) return null;
+      const manifest = normalizeDocumentManifest(stored.value);
+      if (manifest.id !== id) {
+        this.storageFailure("resolver el localizador de documento");
+      }
+      return { manifest, etag: stored.etag };
+    }
     const manifests = await this.listManifests();
     return manifests.find(({ manifest }) => manifest.id === id) ?? null;
   }
@@ -970,20 +970,35 @@ export class VercelBlobContentRepository
     for (const locale of ["es", "en"] as const) {
       const localization = manifest.localizations[locale];
       if (!localization) continue;
-      const stored = await this.readText(localization.content.pathname);
-      if (!stored) this.storageFailure("leer un contenido del manifiesto");
-      sources[locale] = stored.value;
+      const response = await fetch(localization.content.url, {
+        cache: "force-cache",
+      });
+      if (!response.ok) this.storageFailure("leer un contenido del manifiesto");
+      sources[locale] = await response.text();
     }
     return { manifest, etag, sources, source: sources.es ?? "" };
   }
 
-  private async listManifests(): Promise<VersionedManifest[]> {
+  private async listManifests(
+    reuseListedMetadata = false,
+  ): Promise<VersionedManifest[]> {
     this.assertConfigured();
     const blobs = await this.listAll(contentPaths.documents);
     const stored = await Promise.all(
       blobs
         .filter((blob) => blob.pathname.endsWith("/manifest.json"))
-        .map((blob) => this.readJson<unknown>(blob.pathname)),
+        .map((blob) =>
+          this.readJson<unknown>(
+            blob.pathname,
+            reuseListedMetadata
+              ? {
+                  pathname: blob.pathname,
+                  url: blob.url,
+                  etag: blob.etag,
+                }
+              : undefined,
+          ),
+        ),
     );
     return stored
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
@@ -1049,7 +1064,7 @@ export class VercelBlobContentRepository
     const blob = located ?? (await this.locateBlob(pathname));
     if (!blob) return null;
     const response = await fetch(versionedBlobUrl(blob.url, blob.etag), {
-      cache: "no-store",
+      cache: "force-cache",
     });
     if (response.status === 404) return null;
     if (!response.ok) this.storageFailure(`leer ${pathname}`);
@@ -1064,6 +1079,21 @@ export class VercelBlobContentRepository
     return stored
       ? { value: JSON.parse(stored.value) as T, etag: stored.etag }
       : null;
+  }
+
+  private async readImmutableJson<T>(pathname: string) {
+    const stored = await get(pathname, { access: "public" });
+    if (!stored) return null;
+    if (stored.statusCode !== 200) return null;
+    return {
+      value: JSON.parse(await new Response(stored.stream).text()) as T,
+      etag: normalizeBlobEtag(stored.blob.etag),
+    };
+  }
+
+  private async immutableExists(pathname: string) {
+    const stored = await get(pathname, { access: "public" });
+    return Boolean(stored && stored.statusCode === 200);
   }
 
   private async locateBlob(pathname: string): Promise<LocatedBlob | null> {
@@ -1156,6 +1186,21 @@ function toCatalogEntry(
     content: localization.content,
     updatedAt: localization.updatedAt,
     publishedAt: localization.publishedAt!,
+  };
+}
+
+function buildPublicCatalog(
+  manifests: VersionedManifest[],
+  locale: ContentLocale,
+): PublicCatalog {
+  return {
+    schemaVersion: 3,
+    locale,
+    generatedAt: new Date().toISOString(),
+    documents: manifests
+      .map(({ manifest }) => toCatalogEntry(manifest, locale))
+      .filter((entry): entry is CatalogEntry => Boolean(entry))
+      .sort(compareCatalogEntries),
   };
 }
 

@@ -2,15 +2,18 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import type { ReactNode } from "react";
-import { useState } from "react";
+import { Suspense, type ReactNode, useState } from "react";
 
+import type { ContentLocale } from "@/features/content-management/domain/models";
 import { PreferencesProvider } from "@/shared/providers/preferences-provider";
 import { ThemeProvider } from "@/shared/providers/theme-provider";
 import { CustomCursor } from "@/shared/ui/global-interactions/custom-cursor";
 import { InterfaceAudioFeedback } from "@/shared/ui/global-interactions/interface-audio-feedback";
 
-export function AppProviders({ children }: Readonly<{ children: ReactNode }>) {
+export function AppProviders({
+  children,
+  locale,
+}: Readonly<{ children: ReactNode; locale: ContentLocale }>) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -25,11 +28,13 @@ export function AppProviders({ children }: Readonly<{ children: ReactNode }>) {
 
   return (
     <ThemeProvider>
-      <PreferencesProvider>
+      <PreferencesProvider locale={locale}>
         <QueryClientProvider client={queryClient}>
           {children}
           <CustomCursor />
-          <InterfaceAudioFeedback />
+          <Suspense fallback={null}>
+            <InterfaceAudioFeedback />
+          </Suspense>
           {process.env.NODE_ENV === "development" ? (
             <ReactQueryDevtools />
           ) : null}

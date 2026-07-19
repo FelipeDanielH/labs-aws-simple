@@ -21,11 +21,7 @@ export function proxy(request: NextRequest) {
 
   const firstSegment = pathname.split("/")[1] ?? "";
   if (isContentLocale(firstSegment)) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-app-locale", firstSegment);
-    const response = NextResponse.next({
-      request: { headers: requestHeaders },
-    });
+    const response = NextResponse.next();
     response.cookies.set(localeCookieName, firstSegment, {
       maxAge: 60 * 60 * 24 * 365,
       path: "/",

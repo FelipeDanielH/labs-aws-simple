@@ -14,7 +14,7 @@ import {
 } from "@/features/content-management/server/admin-session";
 import { apiError } from "@/features/content-management/server/http";
 import { signImportIntent } from "@/features/content-management/server/import-intent";
-import { getContentRepository } from "@/features/content-management/server/container";
+import { getCachedAdminDocumentByCanonicalKey } from "@/features/content-management/server/cached-content";
 
 const schema = z
   .object({
@@ -69,9 +69,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ existingDocumentId: null });
     }
     const canonicalKey = canonicalDocumentKey(fileName);
-    const existing = (await getContentRepository().list()).find(
-      ({ manifest }) => manifest.canonicalKey === canonicalKey,
-    );
+    const existing = await getCachedAdminDocumentByCanonicalKey(canonicalKey);
     return NextResponse.json({
       existingDocumentId: existing?.manifest.id ?? null,
     });
@@ -86,9 +84,7 @@ export async function POST(request: Request) {
     await requireAdminSession();
     const input = schema.parse(await request.json());
     const canonicalKey = canonicalDocumentKey(input.originalFileName);
-    const existing = (await getContentRepository().list()).find(
-      ({ manifest }) => manifest.canonicalKey === canonicalKey,
-    );
+    const existing = await getCachedAdminDocumentByCanonicalKey(canonicalKey);
     if (existing && existing.manifest.id !== input.existingDocumentId) {
       return NextResponse.json(
         {
@@ -114,17 +110,44 @@ export async function POST(request: Request) {
     const folder =
       existing?.manifest.folder ?? contentPaths.documentFolder(slug, id);
     const assets = input.assets.map((asset) => {
-      const relativePath =
+      const requestedRelativePath =
         input.kind === "docx"
           ? `${existing ? `${createShortId()}-` : ""}${String(asset.index + 1).padStart(3, "0")}-${asset.sha256.slice(0, 16)}.${asset.extension}`
           : normalizeRelativeAssetPath(asset.relativePath);
+      const reusable = existing?.manifest.assets.find(
+        (candidate) =>
+          candidate.sha256 === asset.sha256 &&
+          candidate.size === asset.size &&
+          candidate.contentType === asset.contentType &&
+          (input.kind === "docx" ||
+            candidate.relativePath === requestedRelativePath),
+      );
+      if (reusable) {
+        return {
+          index: asset.index,
+          mode: "reuse" as const,
+          relativePath: reusable.relativePath,
+          pathname: reusable.pathname,
+          placeholder:
+            input.kind === "docx" ? `__DOCX_ASSET_${asset.index}__` : null,
+          reuse: {
+            pathname: reusable.pathname,
+            url: reusable.url,
+            relativePath: reusable.relativePath,
+            contentType: reusable.contentType,
+            size: reusable.size,
+            sha256: reusable.sha256,
+          },
+        };
+      }
       return {
         index: asset.index,
-        relativePath,
+        mode: "upload" as const,
+        relativePath: requestedRelativePath,
         pathname:
           input.kind === "docx"
-            ? contentPaths.image(folder, relativePath)
-            : contentPaths.asset(folder, relativePath),
+            ? contentPaths.image(folder, requestedRelativePath)
+            : contentPaths.asset(folder, requestedRelativePath),
         placeholder:
           input.kind === "docx" ? `__DOCX_ASSET_${asset.index}__` : null,
       };
@@ -136,7 +159,12 @@ export async function POST(request: Request) {
       folder,
       canonicalKey,
       originalFileName: input.originalFileName,
-      allowedPathnames: assets.map((asset) => asset.pathname),
+      allowedPathnames: assets
+        .filter((asset) => asset.mode === "upload")
+        .map((asset) => asset.pathname),
+      reusableAssets: assets.flatMap((asset) =>
+        asset.mode === "reuse" ? [asset.reuse] : [],
+      ),
       replaceEtag: existing?.etag,
     });
     return NextResponse.json({ id, slug, folder, intentToken, assets });

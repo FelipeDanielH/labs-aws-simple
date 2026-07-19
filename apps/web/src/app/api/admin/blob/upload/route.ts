@@ -42,6 +42,7 @@ export async function POST(request: Request) {
           allowedContentTypes:
             intent.kind === "html" ? ALLOWED_HTML_ASSETS : ALLOWED_IMAGES,
           maximumSizeInBytes: 25 * 1024 * 1024,
+          cacheControlMaxAge: 31_536_000,
           addRandomSuffix: false,
           allowOverwrite: false,
           tokenPayload: JSON.stringify({ documentId: intent.id }),

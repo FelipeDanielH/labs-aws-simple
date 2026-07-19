@@ -7,11 +7,13 @@ import {
 } from "@/features/content-management/server/admin-session";
 import { getContentRepository } from "@/features/content-management/server/container";
 import { apiError } from "@/features/content-management/server/http";
+import { getCachedAdminTaxonomy } from "@/features/content-management/server/cached-content";
+import { invalidateTaxonomyCache } from "@/features/content-management/server/content-cache-invalidation";
 
 export async function GET() {
   try {
     await requireAdminSession();
-    return NextResponse.json(await getContentRepository().get());
+    return NextResponse.json(await getCachedAdminTaxonomy());
   } catch (error) {
     return apiError(error);
   }
@@ -63,9 +65,12 @@ export async function PUT(request: Request) {
         }
       }
     }
-    return NextResponse.json(
-      await getContentRepository().save(taxonomy, body.expectedEtag),
+    const saved = await getContentRepository().save(
+      taxonomy,
+      body.expectedEtag,
     );
+    invalidateTaxonomyCache();
+    return NextResponse.json(saved);
   } catch (error) {
     return apiError(error);
   }

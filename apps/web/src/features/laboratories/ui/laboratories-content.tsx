@@ -16,6 +16,7 @@ import type {
   Taxonomy,
 } from "@/features/content-management/domain/models";
 import { messages } from "@/shared/config/translations";
+import { IntentPrefetchLink } from "@/shared/ui/intent-prefetch-link";
 
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100] as const;
 
@@ -288,7 +289,7 @@ export function LaboratoriesContent({
             {visibleDocuments.length ? (
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {visibleDocuments.map((document) => (
-                  <Link
+                  <IntentPrefetchLink
                     key={document.id}
                     href={`/${locale}/laboratorios/${document.slug}`}
                     className="rounded-2xl border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-md"
@@ -318,7 +319,7 @@ export function LaboratoriesContent({
                         ))}
                       </div>
                     ) : null}
-                  </Link>
+                  </IntentPrefetchLink>
                 ))}
               </div>
             ) : (

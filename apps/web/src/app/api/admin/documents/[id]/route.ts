@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { ContentManagementError } from "@/features/content-management/domain/errors";
@@ -14,6 +13,8 @@ import {
   requireAdminSession,
 } from "@/features/content-management/server/admin-session";
 import { getContentRepository } from "@/features/content-management/server/container";
+import { getCachedAdminDocument } from "@/features/content-management/server/cached-content";
+import { invalidateManifestChange } from "@/features/content-management/server/content-cache-invalidation";
 import { apiError } from "@/features/content-management/server/http";
 import { assertTaxonomySelection } from "@/features/content-management/server/taxonomy-selection";
 
@@ -23,7 +24,7 @@ export async function GET(_request: Request, context: Context) {
   try {
     await requireAdminSession();
     const { id } = await context.params;
-    const document = await getContentRepository().findById(id);
+    const document = await getCachedAdminDocument(id);
     if (!document)
       throw new ContentManagementError("NOT_FOUND", "Documento no encontrado.");
     return NextResponse.json(document);
@@ -64,8 +65,7 @@ export async function PUT(request: Request, context: Context) {
       source:
         kind === "html" ? processHtmlContent(input.source).html : input.source,
     });
-    revalidatePath("/es/laboratorios");
-    revalidatePath("/en/laboratorios");
+    invalidateManifestChange(current.manifest, document.manifest);
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);
@@ -94,12 +94,14 @@ export async function DELETE(request: Request, context: Context) {
       })
       .parse(await request.json());
     const repository = getContentRepository();
+    const current = await getCachedAdminDocument(id);
+    if (!current)
+      throw new ContentManagementError("NOT_FOUND", "Documento no encontrado.");
     const document =
       locale === "en"
         ? await repository.removeLocale(id, locale, expectedEtag)
         : await repository.transition(id, "trashed", expectedEtag, "es");
-    revalidatePath("/es/laboratorios");
-    revalidatePath("/en/laboratorios");
+    invalidateManifestChange(current.manifest, document.manifest);
     return NextResponse.json(document);
   } catch (error) {
     return apiError(error);

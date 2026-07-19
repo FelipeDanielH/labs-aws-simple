@@ -1,18 +1,16 @@
 import { injectControlledBase } from "@/features/content-management/application/html-content";
-import { getContentRepository } from "@/features/content-management/server/container";
+import { getCachedPublishedDocument } from "@/features/content-management/server/cached-content";
 import { isContentLocale } from "@/shared/config/locale-routing";
 
 type Context = { params: Promise<{ locale: string; slug: string }> };
-export const dynamic = "force-dynamic";
-
 export async function GET(_request: Request, context: Context) {
   const { locale, slug } = await context.params;
   if (!isContentLocale(locale)) {
     return new Response("Contenido no encontrado", { status: 404 });
   }
-  const document = await getContentRepository()
-    .findPublishedBySlug(slug, locale)
-    .catch(() => null);
+  const document = await getCachedPublishedDocument(slug, locale).catch(
+    () => null,
+  );
   if (!document || document.entry.content.kind !== "html") {
     return new Response("Contenido no encontrado", { status: 404 });
   }
@@ -36,7 +34,7 @@ export async function GET(_request: Request, context: Context) {
       ].join("; "),
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
-      "Cache-Control": "no-store",
+      "Cache-Control": "private, no-cache",
     },
   });
 }

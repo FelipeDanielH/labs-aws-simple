@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 
-import {
-  slugify,
-} from "@/features/content-management/application/document-paths";
-import {
-  processHtmlContent,
-} from "@/features/content-management/application/html-content";
+import { slugify } from "@/features/content-management/application/document-paths";
+import { processHtmlContent } from "@/features/content-management/application/html-content";
 import {
   assertSafeMarkdownUrls,
   markdownLocalAssetReferences,
@@ -17,6 +13,8 @@ import {
   requireAdminSession,
 } from "@/features/content-management/server/admin-session";
 import { getContentRepository } from "@/features/content-management/server/container";
+import { getCachedAdminDocuments } from "@/features/content-management/server/cached-content";
+import { invalidateManifestChange } from "@/features/content-management/server/content-cache-invalidation";
 import { apiError } from "@/features/content-management/server/http";
 import { verifyImportIntent } from "@/features/content-management/server/import-intent";
 import { assertTaxonomySelection } from "@/features/content-management/server/taxonomy-selection";
@@ -30,8 +28,15 @@ export async function GET(request: Request) {
       status === "draft" || status === "published" || status === "trashed"
         ? status
         : undefined;
+    const documents = await getCachedAdminDocuments();
     return NextResponse.json({
-      documents: await getContentRepository().list(validStatus),
+      documents: validStatus
+        ? documents.filter(({ manifest }) =>
+            Object.values(manifest.localizations).some(
+              (localization) => localization?.status === validStatus,
+            ),
+          )
+        : documents,
     });
   } catch (error) {
     return apiError(error);
@@ -106,6 +111,7 @@ export async function POST(request: Request) {
       categoryId: input.categoryId,
       subcategoryId: input.subcategoryId,
     });
+    invalidateManifestChange(null, document.manifest);
     return NextResponse.json(document, { status: 201 });
   } catch (error) {
     return apiError(error);

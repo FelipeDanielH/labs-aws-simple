@@ -45,6 +45,9 @@ export const contentPaths = {
   duplicateKey(canonicalKey: string) {
     return `${ROOT}/system/document-keys/${slugify(canonicalKey)}.json`;
   },
+  documentId(id: string) {
+    return `${ROOT}/system/document-ids/${id}.json`;
+  },
 };
 
 export function canonicalDocumentKey(fileName: string): string {

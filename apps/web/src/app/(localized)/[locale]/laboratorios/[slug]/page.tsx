@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
-import { getContentRepository } from "@/features/content-management/server/container";
+import {
+  getCachedPublishedDocument,
+  getCachedPublicCatalog,
+  getCachedTaxonomy,
+} from "@/features/content-management/server/cached-content";
 import { LaboratoryDetailShell } from "@/features/laboratories/ui/laboratory-detail-shell";
 import { extractMarkdownTableOfContents } from "@/features/markdown-reader/presentation/rendering/markdown-heading-index";
 import { MarkdownRenderer } from "@/features/markdown-reader/presentation/rendering/markdown-renderer";
@@ -9,15 +14,14 @@ import { localizeTaxonomy } from "@/shared/config/locale-routing";
 import { assertContentLocale } from "@/shared/config/route-locale";
 import { messages } from "@/shared/config/translations";
 
-export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ locale: string; slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale, slug } = await params;
   assertContentLocale(locale);
-  const document = await getContentRepository()
-    .findPublishedBySlug(slug, locale)
-    .catch(() => null);
+  const document = await getCachedPublishedDocument(slug, locale).catch(
+    () => null,
+  );
   if (!document) {
     return {
       title: `${messages[locale].laboratoryDetail.notFoundTitle} | AWS Labs`,
@@ -36,14 +40,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function LaboratoryDetailPage({ params }: Props) {
+export default function LaboratoryDetailPage({ params }: Props) {
+  return (
+    <Suspense fallback={<main aria-busy="true" className="min-h-screen" />}>
+      <LaboratoryDetail params={params} />
+    </Suspense>
+  );
+}
+
+async function LaboratoryDetail({ params }: Props) {
   const { locale, slug } = await params;
   assertContentLocale(locale);
-  const repository = getContentRepository();
   const [document, catalog, taxonomyState] = await Promise.all([
-    repository.findPublishedBySlug(slug, locale).catch(() => null),
-    repository.getPublicCatalog(locale),
-    repository.get(),
+    getCachedPublishedDocument(slug, locale).catch(() => null),
+    getCachedPublicCatalog(locale),
+    getCachedTaxonomy(),
   ]);
   if (!document) notFound();
 

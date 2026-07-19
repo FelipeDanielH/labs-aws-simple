@@ -14,16 +14,14 @@ import type {
 export interface DocumentRepository {
   list(status?: DocumentStatus): Promise<VersionedManifest[]>;
   findById(id: string): Promise<VersionedDocument | null>;
+  findByCanonicalKey(canonicalKey: string): Promise<VersionedManifest | null>;
   findPublishedBySlug(
     slug: string,
     locale: ContentLocale,
   ): Promise<PublishedDocument | null>;
   create(input: CreateDocumentInput): Promise<VersionedDocument>;
   update(id: string, input: UpdateDocumentInput): Promise<VersionedDocument>;
-  replace(
-    id: string,
-    input: ReplaceDocumentInput,
-  ): Promise<VersionedDocument>;
+  replace(id: string, input: ReplaceDocumentInput): Promise<VersionedDocument>;
   publishAvailable(
     id: string,
     expectedEtag: string,

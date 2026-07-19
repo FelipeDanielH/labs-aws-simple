@@ -8,19 +8,20 @@ import { Suspense } from "react";
 import {
   taxonomyLabel,
   type Category,
+  type ContentLocale,
 } from "@/features/content-management/domain/models";
 import { messages } from "@/shared/config/translations";
-import { useActiveLocale } from "@/shared/hooks/use-active-locale";
 import { PreferencesMenu } from "@/shared/ui/preferences/preferences-menu";
 
 type NavigationCategory = Category;
 
 export function SiteHeader({
   categories,
+  locale,
 }: {
   categories: NavigationCategory[];
+  locale: ContentLocale;
 }) {
-  const locale = useActiveLocale();
   const copy = messages[locale].navigation;
 
   return (
@@ -49,15 +50,22 @@ export function SiteHeader({
             <CategoryLinks
               ariaLabel={copy.main}
               categories={categories}
+              locale={locale}
               selectedCategory={null}
             />
           }
         >
-          <CategoryNavigation ariaLabel={copy.main} categories={categories} />
+          <CategoryNavigation
+            ariaLabel={copy.main}
+            categories={categories}
+            locale={locale}
+          />
         </Suspense>
 
         <div className="flex items-center justify-end">
-          <PreferencesMenu />
+          <Suspense fallback={null}>
+            <PreferencesMenu />
+          </Suspense>
         </div>
       </div>
     </header>
@@ -67,9 +75,11 @@ export function SiteHeader({
 function CategoryNavigation({
   ariaLabel,
   categories,
+  locale,
 }: {
   ariaLabel: string;
   categories: NavigationCategory[];
+  locale: ContentLocale;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -81,6 +91,7 @@ function CategoryNavigation({
     <CategoryLinks
       ariaLabel={ariaLabel}
       categories={categories}
+      locale={locale}
       selectedCategory={selectedCategory}
     />
   );
@@ -89,13 +100,14 @@ function CategoryNavigation({
 function CategoryLinks({
   ariaLabel,
   categories,
+  locale,
   selectedCategory,
 }: {
   ariaLabel: string;
   categories: NavigationCategory[];
+  locale: ContentLocale;
   selectedCategory: string | null;
 }) {
-  const locale = useActiveLocale();
   return (
     <nav aria-label={ariaLabel} className="max-w-[60vw] overflow-x-auto">
       <div className="flex w-max items-center gap-1">

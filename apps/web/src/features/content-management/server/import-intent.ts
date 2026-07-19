@@ -12,6 +12,14 @@ export type ImportIntent = {
   canonicalKey: string;
   originalFileName: string;
   allowedPathnames: string[];
+  reusableAssets?: Array<{
+    pathname: string;
+    url: string;
+    relativePath: string;
+    contentType: string;
+    size: number;
+    sha256: string;
+  }>;
   replaceEtag?: string;
 };
 
@@ -53,6 +61,9 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
         payload.kind !== "html") ||
       !Array.isArray(payload.allowedPathnames) ||
       !payload.allowedPathnames.every((value) => typeof value === "string") ||
+      (payload.reusableAssets !== undefined &&
+        (!Array.isArray(payload.reusableAssets) ||
+          !payload.reusableAssets.every(isReusableAsset))) ||
       (payload.replaceEtag !== undefined &&
         typeof payload.replaceEtag !== "string")
     ) {
@@ -66,6 +77,7 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       canonicalKey: payload.canonicalKey,
       originalFileName: payload.originalFileName,
       allowedPathnames: payload.allowedPathnames,
+      reusableAssets: payload.reusableAssets,
       replaceEtag: payload.replaceEtag,
     };
   } catch (cause) {
@@ -75,4 +87,19 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       { cause },
     );
   }
+}
+
+function isReusableAsset(
+  value: unknown,
+): value is NonNullable<ImportIntent["reusableAssets"]>[number] {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Record<string, unknown>;
+  return (
+    typeof asset.pathname === "string" &&
+    typeof asset.url === "string" &&
+    typeof asset.relativePath === "string" &&
+    typeof asset.contentType === "string" &&
+    typeof asset.size === "number" &&
+    typeof asset.sha256 === "string"
+  );
 }
