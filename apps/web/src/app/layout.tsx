@@ -10,7 +10,7 @@ import { SiteHeader } from "@/shared/ui/site-header/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Scalable Web Platform",
+  title: "Felipe Henriquez | Laboratorios",
   description: "Base escalable con Next.js y arquitectura SOLID.",
 };
 
