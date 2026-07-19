@@ -28,18 +28,16 @@ const migrationModes = ["dry-run", "apply", "verify"] as const;
 export function MigrationControls() {
   const [result, setResult] = useState<MigrationResult | null>(null);
   const [running, setRunning] = useState<MigrationMode | null>(null);
+  const [confirmingApply, setConfirmingApply] = useState(false);
   const [error, setError] = useState("");
 
   async function run(mode: MigrationMode) {
-    if (
-      mode === "apply" &&
-      !window.confirm(
-        "Esto creará los localizadores faltantes y reconstruirá los catálogos. ¿Continuar?",
-      )
-    ) {
+    if (mode === "apply" && !confirmingApply) {
+      setConfirmingApply(true);
       return;
     }
 
+    setConfirmingApply(false);
     setRunning(mode);
     setError("");
     try {
@@ -95,10 +93,20 @@ export function MigrationControls() {
             }
             onClick={() => void run(mode)}
           >
-            {running === mode ? "Procesando…" : labels[mode]}
+            {running === mode
+              ? "Procesando…"
+              : mode === "apply" && confirmingApply
+                ? "Confirmar aplicación"
+                : labels[mode]}
           </button>
         ))}
       </div>
+
+      {confirmingApply ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Confirma para crear localizadores y reconstruir los catálogos.
+        </p>
+      ) : null}
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
