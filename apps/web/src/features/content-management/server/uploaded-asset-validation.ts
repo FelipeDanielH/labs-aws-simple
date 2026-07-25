@@ -1,4 +1,4 @@
-import { get } from "@vercel/blob";
+import { head } from "@vercel/blob";
 
 import {
   assertSafeBlobPath,
@@ -6,7 +6,9 @@ import {
 } from "../application/document-paths";
 import { assertAssetSignature } from "../application/asset-validation";
 import { collectCssReferences } from "../application/html-content";
+import { ContentManagementError } from "../domain/errors";
 import type { UploadedAssetInput } from "../domain/models";
+import { blobAuthOptions } from "./blob-auth";
 
 export type UploadedAssetClaim = {
   index: number;
@@ -58,27 +60,53 @@ export async function validateUploadedAssets(
       });
       continue;
     }
-    const stored = await get(asset.pathname, {
-      access: "public",
-      useCache: false,
-    });
+    let stored: Awaited<ReturnType<typeof head>>;
+    try {
+      stored = await head(asset.pathname, blobAuthOptions());
+    } catch (cause) {
+      console.error("[content-management] uploaded asset lookup failed", {
+        pathname: asset.pathname,
+        cause,
+      });
+      throw invalidUploadedAsset(cause);
+    }
     if (
-      !stored ||
-      stored.statusCode !== 200 ||
-      stored.blob.url !== asset.url ||
-      stored.blob.size !== asset.size ||
-      stored.blob.contentType !== asset.contentType
+      stored.size !== asset.size ||
+      stored.contentType !== asset.contentType
     ) {
-      throw new Error("Un recurso subido no coincide con lo reservado.");
+      console.error("[content-management] uploaded asset metadata mismatch", {
+        pathname: asset.pathname,
+        expectedSize: asset.size,
+        actualSize: stored.size,
+        expectedContentType: asset.contentType,
+        actualContentType: stored.contentType,
+      });
+      throw invalidUploadedAsset();
     }
-    const bytes = new Uint8Array(
-      await new Response(stored.stream).arrayBuffer(),
-    );
+    if (stored.url !== asset.url) {
+      console.warn("[content-management] using canonical uploaded asset URL", {
+        pathname: asset.pathname,
+        submittedHost: hostname(asset.url),
+        canonicalHost: hostname(stored.url),
+      });
+    }
+    const response = await fetch(stored.url, { cache: "no-store" });
+    if (!response.ok) {
+      console.error("[content-management] uploaded asset download failed", {
+        pathname: asset.pathname,
+        status: response.status,
+      });
+      throw invalidUploadedAsset();
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
     if ((await sha256(bytes)) !== asset.sha256) {
-      throw new Error("El hash de un recurso subido no coincide.");
+      throw new ContentManagementError(
+        "INVALID_INPUT",
+        "Una imagen subida no coincide con el DOCX. Vuelve a importar el archivo.",
+      );
     }
-    assertAssetSignature(bytes, stored.blob.contentType, asset.originalName);
-    if (stored.blob.contentType === "text/css") {
+    assertAssetSignature(bytes, stored.contentType, asset.originalName);
+    if (stored.contentType === "text/css") {
       const css = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       for (const reference of collectCssReferences(css, new Set(), true)) {
         nestedReferences.push(
@@ -89,7 +117,7 @@ export async function validateUploadedAssets(
         );
       }
     }
-    totalSize += stored.blob.size;
+    totalSize += stored.size;
     if (totalSize > 100 * 1024 * 1024) {
       throw new Error("Los recursos superan 100 MiB.");
     }
@@ -97,14 +125,30 @@ export async function validateUploadedAssets(
       originalName: asset.originalName,
       relativePath: asset.relativePath,
       pathname: asset.pathname,
-      url: asset.url,
-      contentType: asset.contentType,
-      size: asset.size,
+      url: stored.url,
+      contentType: stored.contentType,
+      size: stored.size,
       sha256: asset.sha256,
     });
   }
   assertReferencesExist(nestedReferences, assets);
   return assets;
+}
+
+function invalidUploadedAsset(cause?: unknown): ContentManagementError {
+  return new ContentManagementError(
+    "INVALID_INPUT",
+    "No se pudo validar una imagen subida. Vuelve a importar el DOCX.",
+    cause === undefined ? undefined : { cause },
+  );
+}
+
+function hostname(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "invalid";
+  }
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { assertSafeBlobPath } from "@/features/content-management/application/document-paths";
 import { requireAdminSession } from "@/features/content-management/server/admin-session";
+import { blobReadWriteToken } from "@/features/content-management/server/blob-auth";
 import { apiError } from "@/features/content-management/server/http";
 import { verifyImportIntent } from "@/features/content-management/server/import-intent";
 
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as HandleUploadBody;
     const response = await handleUpload({
+      token: blobReadWriteToken(),
       request,
       body,
       onBeforeGenerateToken: async (pathname, clientPayload) => {

@@ -81,7 +81,7 @@ describe("VercelBlobContentRepository", () => {
 
     expect(document?.manifest.metadata.title).toBe("Título vigente");
     expect(document?.source).toBe("# Markdown vigente");
-    expect(blobMocks.head).toHaveBeenCalledWith(manifestPath);
+    expect(blobMocks.head).toHaveBeenCalledWith(manifestPath, {});
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("manifest.json?v=current-manifest-etag"),
       { cache: "force-cache" },
@@ -106,7 +106,7 @@ describe("VercelBlobContentRepository", () => {
     expect(document?.manifest.id).toBe("document-1");
     expect(blobMocks.list).not.toHaveBeenCalled();
     expect(blobMocks.head).toHaveBeenCalledTimes(1);
-    expect(blobMocks.head).toHaveBeenCalledWith(manifestPath);
+    expect(blobMocks.head).toHaveBeenCalledWith(manifestPath, {});
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining(markdownPath), {
       cache: "force-cache",
     });
@@ -186,7 +186,7 @@ describe("VercelBlobContentRepository", () => {
       locatorsCreated: 0,
     });
     expect(blobMocks.list).toHaveBeenCalledTimes(1);
-    expect(blobMocks.head).not.toHaveBeenCalledWith(manifestPath);
+    expect(blobMocks.head).not.toHaveBeenCalledWith(manifestPath, {});
     expect(blobMocks.put).not.toHaveBeenCalled();
   });
 
@@ -576,9 +576,10 @@ describe("VercelBlobContentRepository", () => {
       deletedBytes: 800,
       retainedFiles: 2,
     });
-    expect(blobMocks.del).toHaveBeenCalledWith([
-      `https://store.public.blob.vercel-storage.com/${oldPath}`,
-    ]);
+    expect(blobMocks.del).toHaveBeenCalledWith(
+      [`https://store.public.blob.vercel-storage.com/${oldPath}`],
+      {},
+    );
   });
 
   it("migra manifiestos heredados una sola vez y puede reanudarse", async () => {

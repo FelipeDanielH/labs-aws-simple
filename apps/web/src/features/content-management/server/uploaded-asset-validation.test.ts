@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const blobMocks = vi.hoisted(() => ({
-  get: vi.fn(),
+  head: vi.fn(),
 }));
 
 vi.mock("@vercel/blob", () => blobMocks);
+
+const originalBlobToken = process.env.BLOB_READ_WRITE_TOKEN;
 
 import {
   type UploadedAssetClaim,
@@ -14,28 +16,89 @@ import {
 describe("validateUploadedAssets", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.BLOB_READ_WRITE_TOKEN = "vercel_blob_rw_test";
   });
 
-  it("valida un upload nuevo con una sola operación get", async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (originalBlobToken === undefined) {
+      delete process.env.BLOB_READ_WRITE_TOKEN;
+    } else {
+      process.env.BLOB_READ_WRITE_TOKEN = originalBlobToken;
+    }
+  });
+
+  it("valida un upload nuevo con la misma credencial del client upload", async () => {
     const { asset } = await cssAsset();
-    blobMocks.get.mockResolvedValue({
-      statusCode: 200,
-      stream: new Response("body{color:#fff}").body!,
-      blob: {
-        url: asset.url,
-        size: asset.size,
-        contentType: asset.contentType,
-      },
+    blobMocks.head.mockResolvedValue({
+      url: asset.url,
+      pathname: asset.pathname,
+      size: asset.size,
+      contentType: asset.contentType,
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("body{color:#fff}")),
+    );
 
     const result = await validateUploadedAssets([asset], [asset.pathname]);
 
     expect(result).toHaveLength(1);
-    expect(blobMocks.get).toHaveBeenCalledTimes(1);
-    expect(blobMocks.get).toHaveBeenCalledWith(asset.pathname, {
-      access: "public",
-      useCache: false,
+    expect(blobMocks.head).toHaveBeenCalledTimes(1);
+    expect(blobMocks.head).toHaveBeenCalledWith(asset.pathname, {
+      token: "vercel_blob_rw_test",
     });
+  });
+
+  it("usa la URL canónica del store aunque el navegador envíe otra URL", async () => {
+    const { asset } = await cssAsset();
+    const canonicalUrl = asset.url.replace("store.", "canonical.");
+    blobMocks.head.mockResolvedValue({
+      url: canonicalUrl,
+      pathname: asset.pathname,
+      size: asset.size,
+      contentType: asset.contentType,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("body{color:#fff}")),
+    );
+
+    const [result] = await validateUploadedAssets([asset], [asset.pathname]);
+
+    expect(result?.url).toBe(canonicalUrl);
+    expect(fetch).toHaveBeenCalledWith(canonicalUrl, { cache: "no-store" });
+  });
+
+  it("devuelve un error de entrada útil cuando la metadata no coincide", async () => {
+    const { asset } = await cssAsset();
+    blobMocks.head.mockResolvedValue({
+      url: asset.url,
+      pathname: asset.pathname,
+      size: asset.size + 1,
+      contentType: asset.contentType,
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(
+      validateUploadedAssets([asset], [asset.pathname]),
+    ).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      message:
+        "No se pudo validar una imagen subida. Vuelve a importar el DOCX.",
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[content-management] uploaded asset metadata mismatch",
+      expect.objectContaining({
+        pathname: asset.pathname,
+        expectedSize: asset.size,
+        actualSize: asset.size + 1,
+      }),
+    );
+    consoleError.mockRestore();
   });
 
   it("reutiliza un asset firmado sin uploads ni validaciones remotas", async () => {
@@ -49,7 +112,7 @@ describe("validateUploadedAssets", () => {
         sha256: asset.sha256,
       }),
     ]);
-    expect(blobMocks.get).not.toHaveBeenCalled();
+    expect(blobMocks.head).not.toHaveBeenCalled();
   });
 });
 

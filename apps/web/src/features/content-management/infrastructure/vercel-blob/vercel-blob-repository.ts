@@ -16,6 +16,7 @@ import type { DocumentRepository } from "../../application/ports/document-reposi
 import type { TaxonomyRepository } from "../../application/ports/taxonomy-repository";
 import { ContentManagementError } from "../../domain/errors";
 import { contentLocales, withManifestProjection } from "../../domain/models";
+import { blobAuthOptions } from "../../server/blob-auth";
 import type {
   CatalogEntry,
   ContentLocale,
@@ -175,7 +176,7 @@ export class VercelBlobContentRepository
     try {
       await this.writeJson(locatorPath, locator, undefined, false, 31_536_000);
     } catch (error) {
-      await del(markerPath).catch(() => undefined);
+      await del(markerPath, blobAuthOptions()).catch(() => undefined);
       throw error;
     }
 
@@ -234,9 +235,10 @@ export class VercelBlobContentRepository
         source: spanish.source,
       };
     } catch (error) {
-      if (createdUrls.length) await del(createdUrls).catch(() => undefined);
-      await del(markerPath).catch(() => undefined);
-      await del(locatorPath).catch(() => undefined);
+      if (createdUrls.length)
+        await del(createdUrls, blobAuthOptions()).catch(() => undefined);
+      await del(markerPath, blobAuthOptions()).catch(() => undefined);
+      await del(locatorPath, blobAuthOptions()).catch(() => undefined);
       this.rethrowStorageError(error);
     }
   }
@@ -299,7 +301,7 @@ export class VercelBlobContentRepository
       if (input.locale === "es") document.source = input.source;
       return document;
     } catch (error) {
-      await del(content.url).catch(() => undefined);
+      await del(content.url, blobAuthOptions()).catch(() => undefined);
       this.rethrowStorageError(error);
     }
   }
@@ -357,7 +359,7 @@ export class VercelBlobContentRepository
       if (input.locale === "es") document.source = input.source;
       return document;
     } catch (error) {
-      await del(content.url).catch(() => undefined);
+      await del(content.url, blobAuthOptions()).catch(() => undefined);
       this.rethrowStorageError(error);
     }
   }
@@ -597,13 +599,19 @@ export class VercelBlobContentRepository
       this.invalid("Sólo se pueden purgar documentos en la papelera.");
     }
     const blobs = await this.listAll(`${current.manifest.folder}/`);
-    if (blobs.length) await del(blobs.map((blob) => blob.url));
-    await del(contentPaths.duplicateKey(current.manifest.canonicalKey)).catch(
-      () => undefined,
-    );
-    await del(contentPaths.documentId(current.manifest.id)).catch(
-      () => undefined,
-    );
+    if (blobs.length)
+      await del(
+        blobs.map((blob) => blob.url),
+        blobAuthOptions(),
+      );
+    await del(
+      contentPaths.duplicateKey(current.manifest.canonicalKey),
+      blobAuthOptions(),
+    ).catch(() => undefined);
+    await del(
+      contentPaths.documentId(current.manifest.id),
+      blobAuthOptions(),
+    ).catch(() => undefined);
     await this.syncCatalogs(null, current.manifest);
   }
 
@@ -648,7 +656,11 @@ export class VercelBlobContentRepository
         blob.uploadedAt.getTime() <=
           new Date(current.manifest.updatedAt).getTime(),
     );
-    if (candidates.length) await del(candidates.map((blob) => blob.url));
+    if (candidates.length)
+      await del(
+        candidates.map((blob) => blob.url),
+        blobAuthOptions(),
+      );
     return {
       deletedFiles: candidates.length,
       deletedBytes: candidates.reduce((sum, blob) => sum + blob.size, 0),
@@ -918,6 +930,7 @@ export class VercelBlobContentRepository
       kind,
     );
     const blob = await put(pathname, source, {
+      ...blobAuthOptions(),
       access: "public",
       contentType:
         kind === "html"
@@ -1053,7 +1066,12 @@ export class VercelBlobContentRepository
     const blobs: Awaited<ReturnType<typeof list>>["blobs"] = [];
     let cursor: string | undefined;
     do {
-      const page = await list({ prefix, cursor, limit: 1000 });
+      const page = await list({
+        ...blobAuthOptions(),
+        prefix,
+        cursor,
+        limit: 1000,
+      });
       blobs.push(...page.blobs);
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
@@ -1082,7 +1100,10 @@ export class VercelBlobContentRepository
   }
 
   private async readImmutableJson<T>(pathname: string) {
-    const stored = await get(pathname, { access: "public" });
+    const stored = await get(pathname, {
+      ...blobAuthOptions(),
+      access: "public",
+    });
     if (!stored) return null;
     if (stored.statusCode !== 200) return null;
     return {
@@ -1092,13 +1113,16 @@ export class VercelBlobContentRepository
   }
 
   private async immutableExists(pathname: string) {
-    const stored = await get(pathname, { access: "public" });
+    const stored = await get(pathname, {
+      ...blobAuthOptions(),
+      access: "public",
+    });
     return Boolean(stored && stored.statusCode === 200);
   }
 
   private async locateBlob(pathname: string): Promise<LocatedBlob | null> {
     try {
-      const blob = await head(pathname);
+      const blob = await head(pathname, blobAuthOptions());
       return { pathname: blob.pathname, url: blob.url, etag: blob.etag };
     } catch (error) {
       if (error instanceof BlobNotFoundError) return null;
@@ -1114,6 +1138,7 @@ export class VercelBlobContentRepository
     cacheControlMaxAge = 60,
   ) {
     const stored = await put(pathname, JSON.stringify(value), {
+      ...blobAuthOptions(),
       access: "public",
       contentType: "application/json; charset=utf-8",
       cacheControlMaxAge,
