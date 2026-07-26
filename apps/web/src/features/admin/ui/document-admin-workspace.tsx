@@ -1,9 +1,16 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { Activity, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -55,6 +62,10 @@ import {
   readDocumentStatusFilter,
   type DocumentStatusFilter,
 } from "@/features/admin/ui/admin-preferences";
+import {
+  filterAdminDocuments,
+  type AdminDocumentTaxonomyFilters,
+} from "@/features/admin/ui/admin-document-filters";
 import {
   MarkdownRenderer,
   transformMarkdownUrl,
@@ -372,6 +383,7 @@ export function DocumentAdminWorkspace() {
               <DocumentList
                 documents={documents}
                 loading={loading}
+                taxonomy={taxonomy}
                 onEdit={openDocument}
                 onTrash={trash}
                 onAction={transition}
@@ -2350,6 +2362,7 @@ function MetadataFields(props: {
 function DocumentList({
   documents,
   loading,
+  taxonomy,
   onEdit,
   onTrash,
   onAction,
@@ -2357,6 +2370,7 @@ function DocumentList({
 }: {
   documents: VersionedManifest[];
   loading: boolean;
+  taxonomy: Taxonomy;
   onEdit: (document: VersionedManifest) => void;
   onTrash: (document: VersionedManifest) => void;
   onAction: (
@@ -2369,27 +2383,66 @@ function DocumentList({
   const [status, setStatus] = useState<DocumentStatusFilter>(() =>
     readDocumentStatusFilter(browserAdminPreferenceStorage()),
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [taxonomyFilters, setTaxonomyFilters] =
+    useState<AdminDocumentTaxonomyFilters>({});
   const [page, setPage] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(interval);
   }, []);
-  const filtered = documents.filter(
-    (document) =>
-      status === "all" ||
-      Object.values(document.manifest.localizations).some(
-        (localization) => localization?.status === status,
-      ),
-  );
+  const filtered = filterAdminDocuments(documents, {
+    status,
+    searchQuery: deferredSearchQuery,
+    taxonomy: taxonomyFilters,
+  });
   const pages = Math.max(1, Math.ceil(filtered.length / 10));
   const visible = filtered.slice(page * 10, page * 10 + 10);
+  const hasTaxonomyFilters =
+    taxonomyFilters.categoryId !== undefined ||
+    taxonomyFilters.subcategoryId !== undefined;
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 sm:max-w-2xl">
+          <label htmlFor="document-search" className="sr-only">
+            Buscar documentos
+          </label>
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            id="document-search"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setPage(0);
+            }}
+            autoComplete="off"
+            placeholder="Buscar documentos"
+            className="h-10 w-full rounded-lg border bg-background pr-10 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              aria-label="Limpiar búsqueda"
+              onClick={() => {
+                setSearchQuery("");
+                setPage(0);
+              }}
+              className="absolute top-1/2 right-2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X aria-hidden="true" className="size-4" />
+            </button>
+          ) : null}
+        </div>
         <label
           htmlFor="document-status-filter"
-          className="flex items-center gap-2 text-sm font-medium"
+          className="flex shrink-0 items-center gap-2 text-sm font-medium"
         >
           <span>Mostrar</span>
           <select
@@ -2414,10 +2467,24 @@ function DocumentList({
           </select>
         </label>
       </div>
+      <DocumentTaxonomyFilters
+        taxonomy={taxonomy}
+        value={taxonomyFilters}
+        onChange={(value) => {
+          setTaxonomyFilters(value);
+          setPage(0);
+        }}
+      />
       {loading ? <p>Cargando…</p> : null}
       {!loading && !visible.length ? (
         <p className="text-muted-foreground">
-          No hay documentos en este estado.
+          {searchQuery.trim() && hasTaxonomyFilters
+            ? "No hay documentos que coincidan con la búsqueda y los filtros en este estado."
+            : searchQuery.trim()
+              ? "No hay documentos que coincidan con la búsqueda en este estado."
+              : hasTaxonomyFilters
+                ? "No hay documentos que coincidan con los filtros en este estado."
+                : "No hay documentos en este estado."}
         </p>
       ) : null}
       <div className="space-y-3">
@@ -2533,6 +2600,124 @@ function DocumentList({
         </div>
       ) : null}
     </div>
+  );
+}
+
+const UNASSIGNED_TAXONOMY_FILTER_VALUE = "__unassigned__";
+
+function DocumentTaxonomyFilters({
+  taxonomy,
+  value,
+  onChange,
+}: {
+  taxonomy: Taxonomy;
+  value: AdminDocumentTaxonomyFilters;
+  onChange: (value: AdminDocumentTaxonomyFilters) => void;
+}) {
+  const selectedCategory =
+    typeof value.categoryId === "string"
+      ? taxonomy.categories.find((item) => item.id === value.categoryId)
+      : undefined;
+  const hasFilters =
+    value.categoryId !== undefined || value.subcategoryId !== undefined;
+  return (
+    <fieldset className="flex flex-wrap items-end gap-3 border-t pt-3">
+      <legend className="sr-only">Filtros de clasificación</legend>
+      <span
+        aria-hidden="true"
+        className="self-center text-sm font-semibold text-muted-foreground"
+      >
+        Filtros
+      </span>
+      <label
+        htmlFor="document-category-filter"
+        className="grid min-w-52 gap-1 text-sm font-medium"
+      >
+        <span>Categoría</span>
+        <select
+          id="document-category-filter"
+          value={
+            value.categoryId === undefined
+              ? ""
+              : (value.categoryId ?? UNASSIGNED_TAXONOMY_FILTER_VALUE)
+          }
+          onChange={(event) => {
+            const categoryId = event.target.value;
+            if (!categoryId) {
+              onChange({});
+              return;
+            }
+            onChange({
+              categoryId:
+                categoryId === UNASSIGNED_TAXONOMY_FILTER_VALUE
+                  ? null
+                  : categoryId,
+            });
+          }}
+          className="rounded-lg border bg-background px-3 py-2"
+        >
+          <option value="">Todas las categorías</option>
+          <option value={UNASSIGNED_TAXONOMY_FILTER_VALUE}>
+            Sin categoría
+          </option>
+          {taxonomy.categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedCategory ? (
+        <label
+          htmlFor="document-subcategory-filter"
+          className="grid min-w-52 gap-1 text-sm font-medium"
+        >
+          <span>Subcategoría</span>
+          <select
+            id="document-subcategory-filter"
+            value={
+              value.subcategoryId === undefined
+                ? ""
+                : (value.subcategoryId ?? UNASSIGNED_TAXONOMY_FILTER_VALUE)
+            }
+            onChange={(event) => {
+              const subcategoryId = event.target.value;
+              onChange({
+                categoryId: selectedCategory.id,
+                ...(subcategoryId
+                  ? {
+                      subcategoryId:
+                        subcategoryId === UNASSIGNED_TAXONOMY_FILTER_VALUE
+                          ? null
+                          : subcategoryId,
+                    }
+                  : undefined),
+              });
+            }}
+            className="rounded-lg border bg-background px-3 py-2"
+          >
+            <option value="">Todas las subcategorías</option>
+            <option value={UNASSIGNED_TAXONOMY_FILTER_VALUE}>
+              Sin subcategoría
+            </option>
+            {selectedCategory.subcategories.map((subcategory) => (
+              <option key={subcategory.id} value={subcategory.id}>
+                {subcategory.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {hasFilters ? (
+        <button
+          type="button"
+          onClick={() => onChange({})}
+          className="button-secondary"
+        >
+          Limpiar filtros
+        </button>
+      ) : null}
+    </fieldset>
   );
 }
 
