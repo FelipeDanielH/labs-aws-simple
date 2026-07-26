@@ -1,7 +1,7 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { Activity, useEffect, useMemo, useState } from "react";
+import { Activity, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import {
@@ -29,6 +29,7 @@ import {
   updateLocalizedTaxonomyName,
 } from "@/features/content-management/application/taxonomy-localization";
 import type { ConvertedDocx } from "@/features/content-management/application/ports/docx-converter";
+import type { ConvertedPdf } from "@/features/content-management/application/ports/pdf-converter";
 import type {
   Category,
   ContentLocale,
@@ -69,6 +70,8 @@ const emptyMetadata: DocumentMetadata = {
 };
 
 type ManagementTab = "documents" | "categories";
+type ImportSourceKind = "docx" | "pdf" | "markdown" | "html";
+type ConvertedImportKind = Extract<ImportSourceKind, "docx" | "pdf">;
 const managementTabs = [
   ["documents", "Documentos"],
   ["categories", "Categorías"],
@@ -408,56 +411,57 @@ function ContentImportPanel(props: {
   onCreated: (document: VersionedDocument) => void;
   onExisting: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<"docx" | "markdown" | "html">("docx");
+  const [kind, setKind] = useState<ImportSourceKind>("docx");
   return (
     <section className="space-y-5 rounded-2xl border bg-card p-6">
       <div>
         <h2 className="text-2xl font-semibold">Publicar contenido</h2>
         <p className="text-sm text-muted-foreground">
-          DOCX, HTML o Markdown. Todo contenido nuevo comienza como borrador.
+          DOCX, PDF, HTML o Markdown. Todo contenido nuevo comienza como
+          borrador.
         </p>
       </div>
-      <div
-        role="tablist"
-        aria-label="Tipo de contenido"
-        className="flex flex-wrap gap-2"
-      >
-        {(["docx", "markdown", "html"] as const).map((value) => (
-          <button
-            key={value}
-            role="tab"
-            aria-selected={tab === value}
-            onClick={() => setTab(value)}
-            className={tab === value ? "button-primary" : "button-secondary"}
-          >
-            {value === "docx"
-              ? "DOCX"
-              : value === "markdown"
-                ? "Markdown"
-                : "HTML"}
-          </button>
-        ))}
-      </div>
-      {tab === "docx" ? <DocxImportPanel {...props} /> : null}
-      {tab === "markdown" ? (
-        <DirectImportPanel {...props} kind="markdown" />
+      <Field label="Formato del documento">
+        <select
+          aria-label="Formato del documento"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as ImportSourceKind)}
+          className="input max-w-64"
+        >
+          <option value="docx">DOCX</option>
+          <option value="pdf">PDF</option>
+          <option value="markdown">Markdown</option>
+          <option value="html">HTML</option>
+        </select>
+      </Field>
+      {kind === "docx" || kind === "pdf" ? (
+        <ConvertedImportPanel key={kind} {...props} kind={kind} />
       ) : null}
-      {tab === "html" ? <DirectImportPanel {...props} kind="html" /> : null}
+      {kind === "markdown" ? (
+        <DirectImportPanel key={kind} {...props} kind="markdown" />
+      ) : null}
+      {kind === "html" ? (
+        <DirectImportPanel key={kind} {...props} kind="html" />
+      ) : null}
     </section>
   );
 }
 
-function DocxImportPanel({
+function ConvertedImportPanel({
+  kind,
   taxonomy,
   onCreated,
 }: {
+  kind: ConvertedImportKind;
   taxonomy: Taxonomy;
   onCreated: (document: VersionedDocument) => void;
   onExisting: (id: string) => void;
 }) {
-  const converter = useMemo(() => new MammothDocxConverter(), []);
+  const docxConverter = useMemo(() => new MammothDocxConverter(), []);
   const [file, setFile] = useState<File | null>(null);
-  const [converted, setConverted] = useState<ConvertedDocx | null>(null);
+  const [converted, setConverted] = useState<
+    ConvertedDocx | ConvertedPdf | null
+  >(null);
   const [existing, setExisting] = useState<VersionedDocument | null>(null);
   const [previewAssetUrls, setPreviewAssetUrls] = useState<
     Record<string, string>
@@ -474,6 +478,14 @@ function DocxImportPanel({
     null,
   );
   const [includeEnglish, setIncludeEnglish] = useState(false);
+  const conversionAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      conversionAbortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!converted) {
@@ -492,10 +504,18 @@ function DocxImportPanel({
 
   async function selectFile(selected: File | undefined) {
     if (!selected) return;
+    conversionAbortRef.current?.abort();
+    const abortController = new AbortController();
+    conversionAbortRef.current = abortController;
     setBusy(true);
     setError("");
     try {
-      const result = await converter.convert(selected);
+      const result = await convertUploadedDocument(
+        kind,
+        selected,
+        docxConverter,
+        abortController.signal,
+      );
       const duplicate = await adminRequest<{
         existingDocumentId: string | null;
       }>(
@@ -516,16 +536,19 @@ function DocxImportPanel({
         setExisting(null);
         setMetadata({
           ...emptyMetadata,
-          title: selected.name.replace(/\.docx$/i, ""),
+          title: selected.name.replace(/\.(?:docx|pdf)$/i, ""),
         });
       }
       setFile(selected);
       setConverted(result);
       setMarkdownSource(result.markdown);
     } catch (caught) {
-      setError(messageOf(caught));
+      if (!abortController.signal.aborted) setError(messageOf(caught));
     } finally {
-      setBusy(false);
+      if (conversionAbortRef.current === abortController) {
+        conversionAbortRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -555,7 +578,7 @@ function DocxImportPanel({
       }>("/api/admin/import-intents", {
         method: "POST",
         body: JSON.stringify({
-          kind: "docx",
+          kind,
           originalFileName: file.name,
           existingDocumentId: existing?.manifest.id,
           expectedEtag: existing?.etag,
@@ -582,7 +605,7 @@ function DocxImportPanel({
             return {
               index: asset.index,
               placeholder: target.placeholder,
-              originalName: `image-${asset.index + 1}.${asset.extension}`,
+              originalName: convertedAssetOriginalName(kind, asset),
               ...target.reuse,
             };
           }
@@ -595,7 +618,7 @@ function DocxImportPanel({
           return {
             index: asset.index,
             placeholder: target.placeholder,
-            originalName: `image-${asset.index + 1}.${asset.extension}`,
+            originalName: convertedAssetOriginalName(kind, asset),
             relativePath: `images/${target.pathname.split("/").at(-1)}`,
             pathname: result.pathname,
             url: result.url,
@@ -614,7 +637,7 @@ function DocxImportPanel({
                 index: asset.index,
                 sha256: asset.sha256,
                 relativePath: `images/image-${asset.index + 1}.${asset.extension}`,
-                placeholder: `__DOCX_ASSET_${asset.index}__`,
+                placeholder: asset.placeholder,
               })),
               uploaded,
             )
@@ -638,7 +661,7 @@ function DocxImportPanel({
                     {
                       locale: "es",
                       originalFileName: file.name,
-                      contentKind: "docx",
+                      contentKind: kind,
                       source: markdownSource,
                       metadata: localizedMetadata({ ...metadata, extra }),
                     },
@@ -682,15 +705,15 @@ function DocxImportPanel({
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-2xl font-semibold">Importar DOCX</h2>
+        <h2 className="text-2xl font-semibold">Importar {formatLabel(kind)}</h2>
         <p className="text-sm text-muted-foreground">
-          El archivo se convierte en este navegador; el DOCX original no se
-          sube.
+          El archivo se convierte en este navegador; el {formatLabel(kind)}{" "}
+          original no se sube.
         </p>
       </div>
       <input
         type="file"
-        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept={convertedFileAccept(kind)}
         disabled={busy}
         onChange={(event) => void selectFile(event.target.files?.[0])}
       />
@@ -769,7 +792,7 @@ function DocxImportPanel({
                 index: asset.index,
                 sha256: asset.sha256,
                 relativePath: `images/image-${asset.index + 1}.${asset.extension}`,
-                placeholder: `__DOCX_ASSET_${asset.index}__`,
+                placeholder: asset.placeholder,
               }))}
             />
           )}
@@ -788,7 +811,7 @@ function DocxImportPanel({
           >
             {busy
               ? "Guardando…"
-              : `${existing ? "Reemplazar DOCX" : "Guardar borrador"} (${converted.assets.length} imágenes)`}
+              : `${existing ? `Reemplazar ${formatLabel(kind)}` : "Guardar borrador"} (${converted.assets.length} imágenes)`}
           </button>
         </div>
       ) : null}
@@ -1235,7 +1258,7 @@ type TranslationAsset = {
 };
 
 type TranslationDraft = {
-  kind: "docx" | "markdown" | "html";
+  kind: ImportSourceKind;
   fileName: string;
   source: string;
   metadata: DocumentMetadata;
@@ -1244,12 +1267,50 @@ type TranslationDraft = {
   validationError: string | null;
 };
 
-function storedDocxAssetPlaceholder(asset: { originalName: string }) {
-  const match = /^image-(\d+)\.[^.]+$/iu.exec(asset.originalName);
+async function convertUploadedDocument(
+  kind: ConvertedImportKind,
+  file: File,
+  docxConverter: MammothDocxConverter,
+  signal?: AbortSignal,
+): Promise<ConvertedDocx | ConvertedPdf> {
+  if (kind === "docx") return docxConverter.convert(file);
+  const { PdfJsPdfConverter } =
+    await import("@/features/content-management/infrastructure/browser/pdf-js-pdf-converter");
+  return new PdfJsPdfConverter().convert(file, signal);
+}
+
+function convertedFileAccept(kind: ConvertedImportKind): string {
+  return kind === "pdf"
+    ? ".pdf,application/pdf"
+    : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+}
+
+function convertedAssetOriginalName(
+  kind: ConvertedImportKind,
+  asset: { index: number; extension: string },
+): string {
+  return `${kind === "pdf" ? "pdf-" : ""}image-${asset.index + 1}.${asset.extension}`;
+}
+
+function formatLabel(kind: ImportSourceKind): string {
+  return {
+    docx: "DOCX",
+    pdf: "PDF",
+    markdown: "Markdown",
+    html: "HTML",
+  }[kind];
+}
+
+function normalizePreviewReference(value: string): string {
+  return value.split(/[?#]/u)[0].replaceAll("\\", "/").replace(/^\.\//u, "");
+}
+
+function storedConvertedAssetPlaceholder(asset: { originalName: string }) {
+  const match = /^(pdf-)?image-(\d+)\.[^.]+$/iu.exec(asset.originalName);
   if (!match) return null;
-  const ordinal = Number(match[1]);
+  const ordinal = Number(match[2]);
   if (!Number.isInteger(ordinal) || ordinal < 1) return null;
-  return `__DOCX_ASSET_${ordinal - 1}__`;
+  return `__${match[1] ? "PDF" : "DOCX"}_ASSET_${ordinal - 1}__`;
 }
 
 function fileNameForTitle(
@@ -1357,15 +1418,65 @@ function TranslationDraftPanel({
   const [createFile, setCreateFile] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [previewAssetUrls, setPreviewAssetUrls] = useState<
+    Record<string, string>
+  >({});
+  const conversionAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => onChange(draft), [draft, onChange]);
+  useEffect(
+    () => () =>
+      Object.values(previewAssetUrls).forEach((url) =>
+        URL.revokeObjectURL(url),
+      ),
+    [previewAssetUrls],
+  );
+  useEffect(
+    () => () => {
+      conversionAbortRef.current?.abort();
+    },
+    [],
+  );
+
+  const previewSource = useMemo(() => {
+    if (
+      (draft.kind !== "docx" && draft.kind !== "pdf") ||
+      !draft.assets.length
+    ) {
+      return draft.source;
+    }
+    try {
+      return resolveSharedAssetReferences(
+        draft.source,
+        draft.assets,
+        sharedAssets,
+        sharedAssets.map((asset) => ({
+          index: asset.index,
+          relativePath: asset.relativePath,
+          sha256: asset.sha256,
+        })),
+      );
+    } catch {
+      return draft.source;
+    }
+  }, [draft.assets, draft.kind, draft.source, sharedAssets]);
 
   function validateSource(
     kind: TranslationDraft["kind"],
     source: string,
+    assets: TranslationAsset[] = [],
   ): string | null {
-    if (kind === "docx" || !source.trim()) return null;
+    if (!source.trim()) return null;
     try {
+      if (kind === "docx" || kind === "pdf") {
+        const sharedHashes = new Set(sharedAssets.map((asset) => asset.sha256));
+        const missing = assets.filter(
+          (asset) => !sharedHashes.has(asset.sha256),
+        );
+        return missing.length
+          ? `La traducción contiene ${missing.length} recurso${missing.length === 1 ? "" : "s"} que no existe${missing.length === 1 ? "" : "n"} en la versión en español.`
+          : null;
+      }
       const references =
         kind === "html"
           ? processHtmlContent(source).localReferences
@@ -1389,29 +1500,52 @@ function TranslationDraftPanel({
 
   async function loadFile(file: File | undefined) {
     if (!file) return;
+    conversionAbortRef.current?.abort();
+    const abortController = new AbortController();
+    conversionAbortRef.current = abortController;
     setBusy(true);
     setError("");
     try {
-      if (draft.kind === "docx") {
-        const converted = await converter.convert(file);
+      if (draft.kind === "docx" || draft.kind === "pdf") {
+        const converted = await convertUploadedDocument(
+          draft.kind,
+          file,
+          converter,
+          abortController.signal,
+        );
+        const assets = converted.assets.map((asset) => ({
+          index: asset.index,
+          sha256: asset.sha256,
+          relativePath: `image-${asset.index + 1}.${asset.extension}`,
+          placeholder: asset.placeholder,
+        }));
+        const urls: Record<string, string> = {};
+        for (const asset of converted.assets) {
+          const url = URL.createObjectURL(asset.blob);
+          urls[asset.placeholder] = url;
+          const shared = sharedAssets.find(
+            (candidate) => candidate.sha256 === asset.sha256,
+          );
+          if (shared)
+            urls[normalizePreviewReference(shared.relativePath)] = url;
+        }
+        setPreviewAssetUrls(urls);
         setDraft((current) => ({
           ...current,
           fileName: file.name,
           source: converted.markdown,
           metadata: {
             ...current.metadata,
-            title: file.name.replace(/\.docx$/i, ""),
+            title: file.name.replace(/\.(?:docx|pdf)$/i, ""),
           },
           warnings: converted.warnings,
-          assets: converted.assets.map((asset) => ({
-            index: asset.index,
-            sha256: asset.sha256,
-            relativePath: `image-${asset.index + 1}.${asset.extension}`,
-            placeholder: `__DOCX_ASSET_${asset.index}__`,
-          })),
-          validationError: duplicateError(file.name),
+          assets,
+          validationError:
+            duplicateError(file.name) ??
+            validateSource(draft.kind, converted.markdown, assets),
         }));
       } else {
+        setPreviewAssetUrls({});
         const text = new TextDecoder("utf-8", { fatal: true }).decode(
           await file.arrayBuffer(),
         );
@@ -1433,9 +1567,12 @@ function TranslationDraftPanel({
         }));
       }
     } catch (caught) {
-      setError(messageOf(caught));
+      if (!abortController.signal.aborted) setError(messageOf(caught));
     } finally {
-      setBusy(false);
+      if (conversionAbortRef.current === abortController) {
+        conversionAbortRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -1446,6 +1583,7 @@ function TranslationDraftPanel({
           <select
             value={draft.kind}
             onChange={(event) => {
+              conversionAbortRef.current?.abort();
               const kind = event.target.value as TranslationDraft["kind"];
               setDraft({
                 kind,
@@ -1457,16 +1595,18 @@ function TranslationDraftPanel({
                 validationError: null,
               });
               setCreateFile(false);
+              setPreviewAssetUrls({});
               setError("");
             }}
             className="input"
           >
             <option value="docx">DOCX</option>
+            <option value="pdf">PDF</option>
             <option value="markdown">Markdown</option>
             <option value="html">HTML</option>
           </select>
         </Field>
-        {draft.kind !== "docx" ? (
+        {draft.kind === "markdown" || draft.kind === "html" ? (
           <label className="flex items-center gap-2 self-end pb-2 text-sm">
             <input
               type="checkbox"
@@ -1497,9 +1637,11 @@ function TranslationDraftPanel({
               accept={
                 draft.kind === "docx"
                   ? ".docx"
-                  : draft.kind === "html"
-                    ? ".html,text/html"
-                    : ".md,.markdown,text/markdown"
+                  : draft.kind === "pdf"
+                    ? ".pdf,application/pdf"
+                    : draft.kind === "html"
+                      ? ".html,text/html"
+                      : ".md,.markdown,text/markdown"
               }
               disabled={busy}
               onChange={(event) => void loadFile(event.target.files?.[0])}
@@ -1524,7 +1666,7 @@ function TranslationDraftPanel({
               fileName,
               validationError:
                 duplicateError(fileName) ??
-                validateSource(current.kind, current.source),
+                validateSource(current.kind, current.source, current.assets),
             };
           });
         }}
@@ -1581,7 +1723,7 @@ function TranslationDraftPanel({
               source,
               validationError:
                 duplicateError(current.fileName) ??
-                validateSource(current.kind, source),
+                validateSource(current.kind, source, current.assets),
             }));
           }}
           className="min-h-[28rem] rounded-xl border bg-background p-4 font-mono text-sm"
@@ -1603,8 +1745,12 @@ function TranslationDraftPanel({
         ) : (
           <div className="max-h-[36rem] overflow-auto rounded-xl border bg-background p-5">
             <MarkdownRenderer
-              source={draft.source}
+              source={previewSource}
               baseUrl={sharedBaseUrl ?? undefined}
+              urlTransform={(url) =>
+                previewAssetUrls[normalizePreviewReference(url)] ??
+                transformMarkdownUrl(url, sharedBaseUrl ?? undefined)
+              }
             />
           </div>
         )}
@@ -1904,7 +2050,7 @@ function EnglishDocumentEditor({
           index,
           sha256: asset.sha256,
           relativePath: asset.relativePath,
-          placeholder: storedDocxAssetPlaceholder(asset),
+          placeholder: storedConvertedAssetPlaceholder(asset),
         }));
         nextSource = resolveSharedAssetReferences(
           draft.source,
@@ -1987,7 +2133,7 @@ function EnglishDocumentEditor({
             index,
             sha256: asset.sha256,
             relativePath: asset.relativePath,
-            placeholder: storedDocxAssetPlaceholder(asset),
+            placeholder: storedConvertedAssetPlaceholder(asset),
           }))}
           sharedBaseUrl={
             document.manifest.localizations.es?.content.assetBaseUrl ??

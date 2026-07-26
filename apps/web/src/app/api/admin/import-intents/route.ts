@@ -18,7 +18,7 @@ import { getCachedAdminDocumentByCanonicalKey } from "@/features/content-managem
 
 const schema = z
   .object({
-    kind: z.enum(["docx", "markdown", "html"]),
+    kind: z.enum(["docx", "pdf", "markdown", "html"]),
     originalFileName: z.string().trim().min(1).max(255),
     assets: z
       .array(
@@ -41,7 +41,13 @@ const schema = z
   })
   .superRefine((value, context) => {
     const extension =
-      value.kind === "docx" ? ".docx" : value.kind === "html" ? ".html" : ".md";
+      value.kind === "docx"
+        ? ".docx"
+        : value.kind === "pdf"
+          ? ".pdf"
+          : value.kind === "html"
+            ? ".html"
+            : ".md";
     if (!value.originalFileName.toLowerCase().endsWith(extension)) {
       context.addIssue({
         code: "custom",
@@ -110,17 +116,16 @@ export async function POST(request: Request) {
     const folder =
       existing?.manifest.folder ?? contentPaths.documentFolder(slug, id);
     const assets = input.assets.map((asset) => {
-      const requestedRelativePath =
-        input.kind === "docx"
-          ? `${existing ? `${createShortId()}-` : ""}${String(asset.index + 1).padStart(3, "0")}-${asset.sha256.slice(0, 16)}.${asset.extension}`
-          : normalizeRelativeAssetPath(asset.relativePath);
+      const converted = input.kind === "docx" || input.kind === "pdf";
+      const requestedRelativePath = converted
+        ? `${existing ? `${createShortId()}-` : ""}${String(asset.index + 1).padStart(3, "0")}-${asset.sha256.slice(0, 16)}.${asset.extension}`
+        : normalizeRelativeAssetPath(asset.relativePath);
       const reusable = existing?.manifest.assets.find(
         (candidate) =>
           candidate.sha256 === asset.sha256 &&
           candidate.size === asset.size &&
           candidate.contentType === asset.contentType &&
-          (input.kind === "docx" ||
-            candidate.relativePath === requestedRelativePath),
+          (converted || candidate.relativePath === requestedRelativePath),
       );
       if (reusable) {
         return {
@@ -128,8 +133,9 @@ export async function POST(request: Request) {
           mode: "reuse" as const,
           relativePath: reusable.relativePath,
           pathname: reusable.pathname,
-          placeholder:
-            input.kind === "docx" ? `__DOCX_ASSET_${asset.index}__` : null,
+          placeholder: converted
+            ? `__${input.kind.toUpperCase()}_ASSET_${asset.index}__`
+            : null,
           reuse: {
             pathname: reusable.pathname,
             url: reusable.url,
@@ -144,12 +150,12 @@ export async function POST(request: Request) {
         index: asset.index,
         mode: "upload" as const,
         relativePath: requestedRelativePath,
-        pathname:
-          input.kind === "docx"
-            ? contentPaths.image(folder, requestedRelativePath)
-            : contentPaths.asset(folder, requestedRelativePath),
-        placeholder:
-          input.kind === "docx" ? `__DOCX_ASSET_${asset.index}__` : null,
+        pathname: converted
+          ? contentPaths.image(folder, requestedRelativePath)
+          : contentPaths.asset(folder, requestedRelativePath),
+        placeholder: converted
+          ? `__${input.kind.toUpperCase()}_ASSET_${asset.index}__`
+          : null,
       };
     });
     const intentToken = await signImportIntent({

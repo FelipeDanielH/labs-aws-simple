@@ -94,6 +94,46 @@ describe("content management contracts", () => {
     ).toThrow("No se puede repetir un idioma");
   });
 
+  it("acepta PDF como fuente transitoria y sus placeholders de imágenes", () => {
+    const parsed = createDocumentSchema.parse({
+      intentToken: "token",
+      variants: [
+        {
+          locale: "es",
+          originalFileName: "laboratorio.pdf",
+          contentKind: "pdf",
+          source: "![Diagrama](__PDF_ASSET_0__)",
+          metadata: {
+            title: "Laboratorio PDF",
+            summary: "",
+            author: "",
+            tags: [],
+            extra: {},
+          },
+        },
+      ],
+      assets: [
+        {
+          index: 0,
+          placeholder: "__PDF_ASSET_0__",
+          originalName: "pdf-image-1.png",
+          relativePath: "images/pdf-image-1.png",
+          pathname: "aws-labs/v1/documents/lab/images/pdf-image-1.png",
+          url: "https://store.public.blob.vercel-storage.com/pdf-image-1.png",
+          contentType: "image/png",
+          size: 1024,
+          sha256: "a".repeat(64),
+        },
+      ],
+      order: null,
+      categoryId: null,
+      subcategoryId: null,
+    });
+
+    expect(parsed.variants[0]?.contentKind).toBe("pdf");
+    expect(parsed.assets[0]?.placeholder).toBe("__PDF_ASSET_0__");
+  });
+
   it("reutiliza imágenes españolas por hash y rechaza imágenes nuevas", () => {
     const shared = [
       {
@@ -147,9 +187,9 @@ describe("content management contracts", () => {
         shared,
       ),
     ).toEqual([]);
-    expect(
-      missingSharedAssetReferences(["__DOCX_ASSET_9__"], shared),
-    ).toEqual(["__DOCX_ASSET_9__"]);
+    expect(missingSharedAssetReferences(["__DOCX_ASSET_9__"], shared)).toEqual([
+      "__DOCX_ASSET_9__",
+    ]);
     expect(() =>
       resolveSharedAssetReferences(
         "![New](new.png)",

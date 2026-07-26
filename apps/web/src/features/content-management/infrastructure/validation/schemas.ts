@@ -19,7 +19,7 @@ export const uploadedAssetSchema = z.object({
   index: z.number().int().min(0).max(199),
   placeholder: z
     .string()
-    .regex(/^__DOCX_ASSET_\d+__$/)
+    .regex(/^__(?:DOCX|PDF)_ASSET_\d+__$/)
     .nullable(),
   originalName: z.string().min(1).max(255),
   relativePath: z.string().min(1).max(1000),
@@ -33,7 +33,7 @@ export const uploadedAssetSchema = z.object({
 const variantSchema = z.object({
   locale: localeSchema,
   originalFileName: z.string().min(1).max(255),
-  contentKind: z.enum(["docx", "markdown", "html"]),
+  contentKind: z.enum(["docx", "pdf", "markdown", "html"]),
   source: z.string().max(2 * 1024 * 1024),
   metadata: localizedMetadataSchema,
 });

@@ -102,7 +102,7 @@ export async function validateUploadedAssets(
     if ((await sha256(bytes)) !== asset.sha256) {
       throw new ContentManagementError(
         "INVALID_INPUT",
-        "Una imagen subida no coincide con el DOCX. Vuelve a importar el archivo.",
+        "Una imagen subida no coincide con el documento convertido. Vuelve a importar el archivo.",
       );
     }
     assertAssetSignature(bytes, stored.contentType, asset.originalName);
@@ -138,7 +138,7 @@ export async function validateUploadedAssets(
 function invalidUploadedAsset(cause?: unknown): ContentManagementError {
   return new ContentManagementError(
     "INVALID_INPUT",
-    "No se pudo validar una imagen subida. Vuelve a importar el DOCX.",
+    "No se pudo validar una imagen subida. Vuelve a importar el documento.",
     cause === undefined ? undefined : { cause },
   );
 }

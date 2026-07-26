@@ -87,7 +87,7 @@ describe("validateUploadedAssets", () => {
     ).rejects.toMatchObject({
       code: "INVALID_INPUT",
       message:
-        "No se pudo validar una imagen subida. Vuelve a importar el DOCX.",
+        "No se pudo validar una imagen subida. Vuelve a importar el documento.",
     });
 
     expect(consoleError).toHaveBeenCalledWith(

@@ -5,7 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { ContentManagementError } from "../domain/errors";
 
 export type ImportIntent = {
-  kind: "docx" | "markdown" | "html";
+  kind: "docx" | "pdf" | "markdown" | "html";
   id: string;
   slug: string;
   folder: string;
@@ -57,6 +57,7 @@ export async function verifyImportIntent(token: string): Promise<ImportIntent> {
       typeof payload.canonicalKey !== "string" ||
       typeof payload.originalFileName !== "string" ||
       (payload.kind !== "docx" &&
+        payload.kind !== "pdf" &&
         payload.kind !== "markdown" &&
         payload.kind !== "html") ||
       !Array.isArray(payload.allowedPathnames) ||

@@ -75,7 +75,7 @@ export async function POST(request: Request) {
           );
         }
       }
-      if (/__DOCX_ASSET_\d+__/.test(source)) {
+      if (/__(?:DOCX|PDF)_ASSET_\d+__/.test(source)) {
         throw new Error(
           `Faltan imágenes compartidas en la versión ${variant.locale.toUpperCase()}.`,
         );

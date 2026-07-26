@@ -17,7 +17,7 @@ pnpm check
 
 ## Gestión de documentos con Vercel Blob
 
-La administración convierte archivos `.docx` en el navegador y almacena únicamente Markdown, imágenes y manifiestos en Vercel Blob. El DOCX original no se sube.
+La administración convierte archivos `.docx` y `.pdf` en el navegador y almacena únicamente Markdown, imágenes y manifiestos en Vercel Blob. Los originales no se suben. PDF admite documentos digitales con texto seleccionable; no realiza OCR y avisa cuando encuentra disposiciones complejas o gráficos vectoriales.
 
 Configuración necesaria:
 
@@ -37,7 +37,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 No uses el prefijo `NEXT_PUBLIC_` para ninguno de estos secretos. Configura rate limiting para `/api/admin/auth/login` cuando el plan de Vercel lo permita.
 
-El flujo administrativo está en `/admin`: importar DOCX, revisar advertencias y preview, guardar borrador, editar Markdown/metadata, publicar, despublicar, enviar a papelera, restaurar y purgar. El catálogo público se sirve en `/laboratorios`.
+El flujo administrativo está en `/admin`: importar DOCX, PDF, Markdown o HTML desde el mismo selector de formato, revisar advertencias y preview, guardar borrador, editar contenido/metadata, publicar, despublicar, enviar a papelera, restaurar y purgar. Los selectores español e inglés ofrecen los mismos cuatro formatos. El catálogo público se sirve en `/laboratorios`.
+
+La integración PDF fija `pdfjs-dist` en `4.10.38` para conservar compatibilidad con Node.js 20. Las actualizaciones de seguridad de esa línea deben revisarse periódicamente antes de cambiar la versión.
 
 ## Rutas
 

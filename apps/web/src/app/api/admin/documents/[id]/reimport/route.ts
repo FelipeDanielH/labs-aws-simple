@@ -46,7 +46,7 @@ export async function POST(request: Request, context: Context) {
     const input = schema.parse(await request.json());
     const intent = await verifyImportIntent(input.intentToken);
     if (
-      intent.kind !== "docx" ||
+      (intent.kind !== "docx" && intent.kind !== "pdf") ||
       intent.id !== id ||
       intent.replaceEtag !== input.expectedEtag
     ) {
@@ -77,7 +77,7 @@ export async function POST(request: Request, context: Context) {
         );
       }
     }
-    if (/__DOCX_ASSET_\d+__/.test(source)) {
+    if (/__(?:DOCX|PDF)_ASSET_\d+__/.test(source)) {
       throw new Error("Faltan imágenes de la reimportación.");
     }
     assertSafeMarkdownUrls(source);
