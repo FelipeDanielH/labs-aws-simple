@@ -33,7 +33,7 @@ const MIDDLE_CLICK_ACTION_SELECTOR = [
 const MAX_PARTICLES = 300;
 const MAX_PARTICLES_PER_MOVE = 16;
 const PARTICLE_SPACING = 3.25;
-const TRAIL_ORIGIN_OFFSET: Point = { x: 7, y: 20 };
+const TRAIL_ORIGIN_OFFSET: Point = { x: 11, y: 9 };
 const TRAIL_BASE_HALF_WIDTH = 5.5;
 
 type Point = {
