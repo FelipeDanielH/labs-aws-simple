@@ -7,7 +7,8 @@ import { assertContentLocale } from "@/shared/config/route-locale";
 
 export const metadata: Metadata = {
   title: "Felipe Henriquez | Laboratorios",
-  description: "Base escalable con Next.js y arquitectura SOLID.",
+  description:
+    "Laboratorios prácticos de AWS con guías, documentación y recursos paso a paso.",
 };
 
 export function generateStaticParams() {
