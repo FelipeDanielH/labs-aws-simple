@@ -8,6 +8,7 @@ import type { ContentLocale } from "@/features/content-management/domain/models"
 import { PreferencesProvider } from "@/shared/providers/preferences-provider";
 import { ThemeProvider } from "@/shared/providers/theme-provider";
 import { CustomCursor } from "@/shared/ui/global-interactions/custom-cursor";
+import { DeveloperEasterEgg } from "@/shared/ui/global-interactions/developer-easter-egg";
 import { InterfaceAudioFeedback } from "@/shared/ui/global-interactions/interface-audio-feedback";
 
 export function AppProviders({
@@ -32,6 +33,7 @@ export function AppProviders({
         <QueryClientProvider client={queryClient}>
           {children}
           <CustomCursor />
+          <DeveloperEasterEgg />
           <Suspense fallback={null}>
             <InterfaceAudioFeedback />
           </Suspense>

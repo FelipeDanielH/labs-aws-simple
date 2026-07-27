@@ -78,7 +78,6 @@ export function CustomCursor() {
     const particles: TrailParticle[] = [];
     const lastPointer: Point = { x: -100, y: -100 };
     let hasPointerPosition = false;
-    let isVisible = false;
     let isAutoScrolling = false;
     let animationFrameId = 0;
     let themeFrameId = 0;
@@ -229,13 +228,32 @@ export function CustomCursor() {
     };
 
     const hideCursor = () => {
-      isVisible = false;
       hasPointerPosition = false;
       layer.dataset.visible = "false";
       layer.dataset.pressed = "false";
       window.cancelAnimationFrame(animationFrameId);
       animationFrameId = 0;
       clearTrail();
+    };
+
+    const showCursor = (point: Point, element: Element | null) => {
+      if (
+        !finePointerQuery.matches ||
+        element?.closest(NATIVE_CURSOR_SELECTOR)
+      ) {
+        hideCursor();
+        return;
+      }
+
+      lastPointer.x = point.x;
+      lastPointer.y = point.y;
+      hasPointerPosition = true;
+      updateCursorPosition(point);
+      layer.dataset.interactive = String(
+        Boolean(element?.closest(INTERACTIVE_SELECTOR)),
+      );
+      layer.dataset.pressed = "false";
+      layer.dataset.visible = "true";
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -245,6 +263,8 @@ export function CustomCursor() {
       }
 
       if (isAutoScrolling) {
+        lastPointer.x = event.clientX;
+        lastPointer.y = event.clientY;
         hideCursor();
         return;
       }
@@ -265,18 +285,7 @@ export function CustomCursor() {
         emitTrail(lastPointer, pointer);
       }
 
-      lastPointer.x = pointer.x;
-      lastPointer.y = pointer.y;
-      hasPointerPosition = true;
-      updateCursorPosition(pointer);
-      layer.dataset.interactive = String(
-        Boolean(element?.closest(INTERACTIVE_SELECTOR)),
-      );
-
-      if (!isVisible) {
-        isVisible = true;
-        layer.dataset.visible = "true";
-      }
+      showCursor(pointer, element);
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -285,19 +294,27 @@ export function CustomCursor() {
       }
 
       const element = event.target instanceof Element ? event.target : null;
+      const pointer = { x: event.clientX, y: event.clientY };
 
       if (
         event.button === 1 &&
         !element?.closest(MIDDLE_CLICK_ACTION_SELECTOR)
       ) {
-        isAutoScrolling = !isAutoScrolling;
-        hideCursor();
+        if (isAutoScrolling) {
+          isAutoScrolling = false;
+          showCursor(pointer, element);
+        } else {
+          isAutoScrolling = true;
+          lastPointer.x = pointer.x;
+          lastPointer.y = pointer.y;
+          hideCursor();
+        }
         return;
       }
 
       if (isAutoScrolling) {
         isAutoScrolling = false;
-        hideCursor();
+        showCursor(pointer, element);
         return;
       }
 
@@ -311,7 +328,10 @@ export function CustomCursor() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isAutoScrolling) {
         isAutoScrolling = false;
-        hideCursor();
+        showCursor(
+          lastPointer,
+          document.elementFromPoint(lastPointer.x, lastPointer.y),
+        );
       }
     };
 
