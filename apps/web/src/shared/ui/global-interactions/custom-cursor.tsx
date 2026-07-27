@@ -18,6 +18,18 @@ const INTERACTIVE_SELECTOR = [
   "[role='option']",
   "[data-cursor-interactive]",
 ].join(", ");
+const MIDDLE_CLICK_ACTION_SELECTOR = [
+  "a",
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "option",
+  "summary",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='link']",
+].join(", ");
 const MAX_PARTICLES = 300;
 const MAX_PARTICLES_PER_MOVE = 16;
 const PARTICLE_SPACING = 3.25;
@@ -67,6 +79,7 @@ export function CustomCursor() {
     const lastPointer: Point = { x: -100, y: -100 };
     let hasPointerPosition = false;
     let isVisible = false;
+    let isAutoScrolling = false;
     let animationFrameId = 0;
     let themeFrameId = 0;
     let lastFrameTime = performance.now();
@@ -188,8 +201,7 @@ export function CustomCursor() {
 
       for (let index = 1; index <= count; index += 1) {
         const distanceFromStart = (distance * index) / count;
-        const baseOffset =
-          (Math.random() * 2 - 1) * TRAIL_BASE_HALF_WIDTH;
+        const baseOffset = (Math.random() * 2 - 1) * TRAIL_BASE_HALF_WIDTH;
         const jitter = (Math.random() - 0.5) * 5;
         const particle: TrailParticle = {
           x:
@@ -197,10 +209,7 @@ export function CustomCursor() {
             directionX * distanceFromStart +
             baseOffset -
             directionY * jitter,
-          y:
-            trailFrom.y +
-            directionY * distanceFromStart +
-            directionX * jitter,
+          y: trailFrom.y + directionY * distanceFromStart + directionX * jitter,
           velocityX: (Math.random() - 0.5) * 0.012,
           velocityY: 0.006 + Math.random() * 0.014,
           age: 0,
@@ -235,8 +244,15 @@ export function CustomCursor() {
         return;
       }
 
+      if (isAutoScrolling) {
+        hideCursor();
+        return;
+      }
+
       const element = event.target instanceof Element ? event.target : null;
-      const needsNativeCursor = Boolean(element?.closest(NATIVE_CURSOR_SELECTOR));
+      const needsNativeCursor = Boolean(
+        element?.closest(NATIVE_CURSOR_SELECTOR),
+      );
 
       if (needsNativeCursor) {
         hideCursor();
@@ -264,13 +280,44 @@ export function CustomCursor() {
     };
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.isPrimary && event.pointerType === "mouse") {
-        layer.dataset.pressed = "true";
+      if (!event.isPrimary || event.pointerType !== "mouse") {
+        return;
       }
+
+      const element = event.target instanceof Element ? event.target : null;
+
+      if (
+        event.button === 1 &&
+        !element?.closest(MIDDLE_CLICK_ACTION_SELECTOR)
+      ) {
+        isAutoScrolling = !isAutoScrolling;
+        hideCursor();
+        return;
+      }
+
+      if (isAutoScrolling) {
+        isAutoScrolling = false;
+        hideCursor();
+        return;
+      }
+
+      layer.dataset.pressed = "true";
     };
 
     const handlePointerUp = () => {
       layer.dataset.pressed = "false";
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isAutoScrolling) {
+        isAutoScrolling = false;
+        hideCursor();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      isAutoScrolling = false;
+      hideCursor();
     };
 
     const handlePointerCapabilityChange = () => {
@@ -312,7 +359,8 @@ export function CustomCursor() {
     window.addEventListener("pointercancel", handlePointerUp, {
       passive: true,
     });
-    window.addEventListener("blur", hideCursor);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("blur", handleWindowBlur);
     document.documentElement.addEventListener("mouseleave", hideCursor);
     finePointerQuery.addEventListener("change", handlePointerCapabilityChange);
     reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
@@ -327,7 +375,8 @@ export function CustomCursor() {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
-      window.removeEventListener("blur", hideCursor);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("blur", handleWindowBlur);
       document.documentElement.removeEventListener("mouseleave", hideCursor);
       finePointerQuery.removeEventListener(
         "change",
